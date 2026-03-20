@@ -8,7 +8,7 @@ from .model_util import CropParameters, recursive_clone
 from .base.base_model import BaseModel
 
 from .unet import UNetFlow, WNet, UNetFlowNoRecur, UNetRecurrent, UNet
-from .submodules import ResidualBlock, ConvGRU, ConvLayer
+from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU
 from utils.color_utils import merge_channels_into_color_image
 
 from .legacy import FireNet_legacy
@@ -271,6 +271,63 @@ class FireNet(BaseModel):
         """
         :param x: N x num_input_channels x H x W event tensor
         :return: N x num_output_channels x H x W image
+        """
+        x = self.head(x)
+        x = self.G1(x, self._states[0])
+        self._states[0] = x
+        x = self.R1(x)
+        x = self.G2(x, self._states[1])
+        self._states[1] = x
+        x = self.R2(x)
+        return {'image': self.pred(x)}
+
+
+class DarkFireNet(BaseModel):
+    """
+    Low-light optimized version of FireNet.
+    Replaces standard ConvGRU with LightAwareConvGRU, which modulates the update gate
+    based on event density (proxy for illumination). In dark scenes (low event density),
+    the update gate is suppressed, causing the model to retain more temporal memory
+    and reduce smearing artifacts.
+
+    Additionally uses SE (Squeeze-Excitation) channel attention on GRU hidden states
+    to adaptively weight feature channels.
+
+    Architecture: head -> LightAwareGRU1 -> Res1 -> LightAwareGRU2 -> Res2 -> pred
+    """
+    def __init__(self, num_bins=5, base_num_channels=16, kernel_size=3, unet_kwargs={}):
+        super().__init__()
+        if unet_kwargs:  # legacy compatibility
+            num_bins = unet_kwargs.get('num_bins', num_bins)
+            base_num_channels = unet_kwargs.get('base_num_channels', base_num_channels)
+            kernel_size = unet_kwargs.get('kernel_size', kernel_size)
+        self.num_bins = num_bins
+        padding = kernel_size // 2
+        self.head = ConvLayer(self.num_bins, base_num_channels, kernel_size, padding=padding)
+        self.G1   = LightAwareConvGRU(base_num_channels, base_num_channels, kernel_size)
+        self.R1   = ResidualBlock(base_num_channels, base_num_channels)
+        self.G2   = LightAwareConvGRU(base_num_channels, base_num_channels, kernel_size)
+        self.R2   = ResidualBlock(base_num_channels, base_num_channels)
+        self.pred = ConvLayer(base_num_channels, out_channels=1, kernel_size=1, activation=None)
+        self.num_encoders = 0  # needed by image_reconstructor.py
+        self.num_recurrent_units = 2
+        self.reset_states()
+
+    @property
+    def states(self):
+        return copy_states(self._states)
+
+    @states.setter
+    def states(self, states):
+        self._states = states
+
+    def reset_states(self):
+        self._states = [None] * self.num_recurrent_units
+
+    def forward(self, x):
+        """
+        :param x: N x num_bins x H x W event voxel tensor
+        :return: dict with 'image': N x 1 x H x W reconstructed frame
         """
         x = self.head(x)
         x = self.G1(x, self._states[0])

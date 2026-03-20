@@ -302,3 +302,82 @@ class RecurrentResidualLayer(nn.Module):
         state = self.recurrent_block(x, prev_state)
         x = state[0] if self.recurrent_block_type == 'convlstm' else state
         return x, state
+
+
+class LightAwareConvGRU(nn.Module):
+    """
+    Light-aware Convolutional GRU for low-light event-to-video reconstruction.
+    Modulates the update gate based on event density (proxy for illumination):
+    - High density (bright scene): update gate operates normally
+    - Low density (dark scene): update gate is suppressed → more temporal memory retained
+
+    Additionally applies SE (Squeeze-Excitation) channel attention on the hidden state output.
+
+    Interface is identical to ConvGRU: forward(input_, prev_state) -> new_state tensor.
+    """
+
+    def __init__(self, input_size, hidden_size, kernel_size):
+        super().__init__()
+        padding = kernel_size // 2
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        # Standard GRU gates (identical structure to ConvGRU)
+        self.reset_gate  = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.update_gate = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.out_gate    = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+
+        # Density modulation: learns a mapping from normalized density map [B,1,H,W] to update gate scale
+        self.density_gate = nn.Conv2d(1, 1, kernel_size=1)
+
+        # SE (Squeeze-Excitation) channel attention on hidden state
+        r = max(1, hidden_size // 4)  # reduction ratio, safe for small hidden_size
+        self.se_avg = nn.AdaptiveAvgPool2d(1)
+        self.se_fc1 = nn.Linear(hidden_size, r, bias=False)
+        self.se_fc2 = nn.Linear(r, hidden_size, bias=False)
+
+        # Weight initialization (identical to ConvGRU)
+        init.orthogonal_(self.reset_gate.weight)
+        init.orthogonal_(self.update_gate.weight)
+        init.orthogonal_(self.out_gate.weight)
+        init.constant_(self.reset_gate.bias, 0.)
+        init.constant_(self.update_gate.bias, 0.)
+        init.constant_(self.out_gate.bias, 0.)
+
+    def forward(self, input_, prev_state):
+        # get batch and spatial sizes
+        batch_size = input_.data.size()[0]
+        spatial_size = input_.data.size()[2:]
+
+        # generate empty prev_state if None is provided
+        if prev_state is None:
+            state_size = [batch_size, self.hidden_size] + list(spatial_size)
+            prev_state = torch.zeros(state_size, dtype=input_.dtype).to(input_.device)
+
+        # === Density map: computed from input voxel, no extra input needed ===
+        # [B, num_bins, H, W] -> [B, 1, H, W], normalized to [0, 1]
+        density = input_.abs().sum(dim=1, keepdim=True)
+        # Use .view().max() for PyTorch version compatibility (avoids .amax())
+        density_max = density.view(batch_size, -1).max(dim=1)[0].view(batch_size, 1, 1, 1)
+        density = density / (density_max + 1e-6)
+        # Learn a mapping from density to update gate modulation coefficient
+        density_modulation = torch.sigmoid(self.density_gate(density))  # [B, 1, H, W]
+
+        # === Standard GRU gating (identical logic to ConvGRU) ===
+        stacked = torch.cat([input_, prev_state], dim=1)
+        update  = torch.sigmoid(self.update_gate(stacked))
+        reset   = torch.sigmoid(self.reset_gate(stacked))
+        out_inp = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
+
+        # === Density modulation: suppress update in dark/low-density scenes ===
+        update = update * density_modulation  # low density -> small update -> preserve prev_state
+
+        new_state = prev_state * (1 - update) + out_inp * update
+
+        # === SE channel attention on new_state ===
+        se = self.se_avg(new_state).view(batch_size, self.hidden_size)          # [B, C]
+        se = torch.relu(self.se_fc1(se))                                         # [B, r]
+        se = torch.sigmoid(self.se_fc2(se)).view(batch_size, self.hidden_size, 1, 1)  # [B, C, 1, 1]
+        new_state = new_state * se
+
+        return new_state  # tensor, NOT tuple — identical interface to ConvGRU
