@@ -12,7 +12,7 @@
     "data_loader": {
         "type": "HDF5DataLoader",
         "args": {
-            "data_file": "/path/to/training_dataset.h5",
+            "data_file": "..\\dataset\\HQF\\",
             "batch_size": 2,
             "shuffle": true,
             "num_workers": 0,
@@ -46,7 +46,7 @@
     "valid_data_loader": {
         "type": "HDF5DataLoader",
         "args": {
-            "data_file": "/path/to/validation_dataset.h5",
+            "data_file": "1",
             "batch_size": 1,
             "shuffle": false,
             "num_workers": 0,
@@ -94,8 +94,8 @@
         }
     },
     "trainer": {
-        "epochs": 200,
-        "save_dir": "/path/to/model/save/dir",
+        "epochs": 10,
+        "save_dir": ".\\checkpoints\\quick_test_HQF",
         "save_period": 5,
         "verbosity": 2,
         "monitor": "min loss",

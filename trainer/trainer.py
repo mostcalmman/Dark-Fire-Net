@@ -27,6 +27,8 @@ class Trainer(BaseTrainer):
             self.len_epoch = len_epoch
         self.valid_data_loader = valid_data_loader
         self.do_validation = self.valid_data_loader is not None
+        # [LSR]
+        self.do_validation = False
         self.lr_scheduler = lr_scheduler
         self.log_step = max(len(data_loader) // 100, 1)
         self.val_log_step = max(len(valid_data_loader) // 100, 1)
