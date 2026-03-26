@@ -1,0 +1,9 @@
+Evidence: No "PerceptualSimilarity" references remain in model/loss.py
+Date: 2026-03-27
+
+grep for "PerceptualSimilarity" in model/loss.py: No matches found
+
+Import changed from:
+  from PerceptualSimilarity import models
+To:
+  import lpips

@@ -862,7 +862,7 @@ Wave FINAL (After ALL tasks — 4 parallel reviews, then user okay):
   - Message: `fix(config): convert Windows backslash paths to POSIX forward slashes`
   - Files: `config/dark_firenet.json`
 
-- [ ] 13. Migrate PerceptualSimilarity to standard lpips package
+- [x] 13. Migrate PerceptualSimilarity to standard lpips package
 
   **What to do**:
   - In `model/loss.py`, replace the PerceptualSimilarity dependency with standard `lpips`:

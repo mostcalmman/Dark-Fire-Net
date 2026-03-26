@@ -14,7 +14,8 @@
     "ses_2d43b7b45ffeO2NUZ6wXLoETsJ",
     "ses_2d43b9c04ffeWldC8VOwIaMm1Y",
     "ses_2d43bd83dffeMbAPXs4EzQRZiz",
-    "ses_2d43c3a84ffeMswRFrTZBJ9Jpp"
+    "ses_2d43c3a84ffeMswRFrTZBJ9Jpp",
+    "ses_2d435d5b0ffee3N1KwwWS9x6Ph"
   ],
   "plan_name": "modernize-hqf",
   "agent": "atlas",
@@ -27,6 +28,15 @@
       "agent": "Sisyphus-Junior",
       "category": "quick",
       "updated_at": "2026-03-26T20:09:32.515Z"
+    },
+    "todo:13": {
+      "task_key": "todo:13",
+      "task_label": "13",
+      "task_title": "Migrate PerceptualSimilarity to standard lpips package",
+      "session_id": "ses_2d435d5b0ffee3N1KwwWS9x6Ph",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-03-26T20:20:58.352Z"
     }
   }
 }
