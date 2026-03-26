@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from event_utils import *
-from scipy.ndimage.filters import gaussian_filter
+from .event_utils import *
+from scipy.ndimage import gaussian_filter
 from abc import ABC, abstractmethod
 
 class objective_function(ABC):

@@ -3,11 +3,16 @@ import time
 import numpy as np
 import scipy
 import scipy.optimize as opt
-from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage import gaussian_filter
 import torch
-from event_utils import *
-from objectives import *
-from warps import *
+try:
+    from .event_utils import *
+    from .objectives import *
+    from .warps import *
+except ImportError:
+    from event_utils import *
+    from objectives import *
+    from warps import *
 
 def draw_objective_function(xs, ys, ts, ps, objective, warpfunc, x_range=(-200, 200), y_range=(-200, 200),
         gt=(0,0), show_gt=True, resolution=20, img_size=(180, 240)):

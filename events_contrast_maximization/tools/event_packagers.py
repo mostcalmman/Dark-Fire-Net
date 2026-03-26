@@ -3,9 +3,7 @@ import h5py
 import cv2 as cv
 import numpy as np
 
-class packager():
-
-    __metaclass__ = ABCMeta
+class packager(metaclass=ABCMeta):
 
     def __init__(self, name, output_path, max_buffer_size=1000000):
         self.name = name
@@ -41,10 +39,10 @@ class hdf5_packager(packager):
         packager.__init__(self, 'hdf5', output_path, max_buffer_size)
         print("CREATING FILE IN {}".format(output_path))
         self.events_file = h5py.File(output_path, 'w')
-        self.event_xs = self.events_file.create_dataset("events/xs", (0, ), dtype=np.dtype(np.int16), maxshape=(None, ), chunks=True)
-        self.event_ys = self.events_file.create_dataset("events/ys", (0, ), dtype=np.dtype(np.int16), maxshape=(None, ), chunks=True)
-        self.event_ts = self.events_file.create_dataset("events/ts", (0, ), dtype=np.dtype(np.float64), maxshape=(None, ), chunks=True)
-        self.event_ps = self.events_file.create_dataset("events/ps", (0, ), dtype=np.dtype(np.bool_), maxshape=(None, ), chunks=True)
+        self.event_xs = self.events_file.create_dataset("events/xs", (0, ), dtype=np.int16, maxshape=(None, ), chunks=True)
+        self.event_ys = self.events_file.create_dataset("events/ys", (0, ), dtype=np.int16, maxshape=(None, ), chunks=True)
+        self.event_ts = self.events_file.create_dataset("events/ts", (0, ), dtype=np.float64, maxshape=(None, ), chunks=True)
+        self.event_ps = self.events_file.create_dataset("events/ps", (0, ), dtype=np.bool_, maxshape=(None, ), chunks=True)
 
     def append_to_dataset(self, dataset, data):
         dataset.resize(dataset.shape[0] + len(data), axis=0)
@@ -60,14 +58,14 @@ class hdf5_packager(packager):
 
     def package_image(self, image, timestamp, img_idx):
         image_dset = self.events_file.create_dataset("images/image{:09d}".format(img_idx),
-                data=image, dtype=np.dtype(np.uint8))
+                data=image, dtype=np.uint8)
         image_dset.attrs['size'] = image.shape
         image_dset.attrs['timestamp'] = timestamp
         image_dset.attrs['type'] = "greyscale" if image.shape[-1] == 1 or len(image.shape) == 2 else "color_bgr" 
 
     def package_flow(self, flow_image, timestamp, flow_idx):
         flow_dset = self.events_file.create_dataset("flow/flow{:09d}".format(flow_idx),
-                data=flow_image, dtype=np.dtype(np.float32))
+                data=flow_image, dtype=np.float32)
         flow_dset.attrs['size'] = flow_image.shape
         flow_dset.attrs['timestamp'] = timestamp
 

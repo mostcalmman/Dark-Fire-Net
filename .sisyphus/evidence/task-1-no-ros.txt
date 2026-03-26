@@ -1,0 +1,21 @@
+=== Task 1: No ROS Packages Check ===
+
+ROS packages searched for: rosbag, rospy, cv_bridge
+
+Verification: These packages are NOT present in requirements.txt
+
+requirements.txt contents:
+torch>=2.0.0
+torchvision>=0.15.0
+numpy>=1.24.0
+scipy>=1.14.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+opencv-python>=4.8.0
+tqdm>=4.65.0
+h5py>=3.10.0
+lpips>=0.1.4
+tensorboard>=2.13.0
+scikit-image>=0.21.0
+
+Result: No ROS packages found - requirement satisfied

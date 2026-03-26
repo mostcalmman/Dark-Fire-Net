@@ -1,0 +1,25 @@
+# Evidence: torch.meshgrid indexing parameter fix
+
+## Task: Add explicit `indexing='ij'` parameter to all torch.meshgrid calls in utils/loss.py
+
+## Completed: All 3 meshgrid calls updated
+
+### Line 22
+```python
+xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height), indexing='ij')  # xx, yy -> WxH
+```
+
+### Line 79
+```python
+xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height), indexing='ij')  # xx, yy -> WxH
+```
+
+### Line 121
+```python
+xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height), indexing='ij')  # xx, yy -> WxH
+```
+
+## Verification
+- All 3 meshgrid calls now have explicit `indexing='ij'` parameter
+- Uses 'ij' (not 'xy') to preserve old default behavior that code depends on
+- No other code was modified around the meshgrid calls

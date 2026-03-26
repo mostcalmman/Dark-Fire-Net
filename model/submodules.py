@@ -194,8 +194,8 @@ class ConvLSTM(nn.Module):
     def forward(self, input_, prev_state=None):
 
         # get batch and spatial sizes
-        batch_size = input_.data.size()[0]
-        spatial_size = input_.data.size()[2:]
+        batch_size = input_.size()[0]
+        spatial_size = input_.size()[2:]
 
         # generate empty prev_state, if None is provided
         if prev_state is None:
@@ -260,8 +260,8 @@ class ConvGRU(nn.Module):
     def forward(self, input_, prev_state):
 
         # get batch and spatial sizes
-        batch_size = input_.data.size()[0]
-        spatial_size = input_.data.size()[2:]
+        batch_size = input_.size()[0]
+        spatial_size = input_.size()[2:]
 
         # generate empty prev_state, if None is provided
         if prev_state is None:
@@ -346,8 +346,8 @@ class LightAwareConvGRU(nn.Module):
 
     def forward(self, input_, prev_state):
         # get batch and spatial sizes
-        batch_size = input_.data.size()[0]
-        spatial_size = input_.data.size()[2:]
+        batch_size = input_.size()[0]
+        spatial_size = input_.size()[2:]
 
         # generate empty prev_state if None is provided
         if prev_state is None:

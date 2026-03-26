@@ -1,0 +1,25 @@
+Verification: scipy.ndimage.filters imports fixed
+==============================================
+
+Date: 2026-03-27
+Task: Fix deprecated scipy.ndimage.filters imports
+
+Changes Made:
+-------------
+1. events_contrast_maximization/utils/objectives.py line 4
+   BEFORE: from scipy.ndimage.filters import gaussian_filter
+   AFTER:  from scipy.ndimage import gaussian_filter
+
+2. events_contrast_maximization/utils/events_cmax.py line 6
+   BEFORE: from scipy.ndimage.filters import gaussian_filter
+   AFTER:  from scipy.ndimage import gaussian_filter
+
+Verification:
+-------------
+- Searched for remaining scipy.ndimage.filters references: NONE FOUND
+- Both imports now use the supported scipy.ndimage path
+
+Note:
+------
+- LSP errors in the files are pre-existing type annotation issues
+- The import changes are backward compatible (same function, same signature)

@@ -4,13 +4,16 @@ import os
 import h5py
 import pandas as pd
 import numpy as np
-from event_packagers import *
+try:
+    from event_packagers import *
+except ImportError:
+    from .event_packagers import *
 
 
 def get_sensor_size(txt_path):
     try:
-        header = pd.read_csv(txt_path, delim_whitespace=True, header=None, names=['width', 'height'],
-                         dtype={'width': np.int, 'height': np.int},
+        header = pd.read_csv(txt_path, sep=r'\s+', header=None, names=['width', 'height'],
+                         dtype={'width': np.int64, 'height': np.int64},
                          nrows=1)
         width, height = header.values[0]
         sensor_size = [height, width]
@@ -36,7 +39,7 @@ def extract_txt(txt_path, output_path, zero_timestamps=False,
     total_num_pos, total_num_neg, last_ts = 0, 0, 0
 
     chunksize = 100000
-    iterator = pd.read_csv(txt_path, delim_whitespace=True, header=None,
+    iterator = pd.read_csv(txt_path, sep=r'\s+', header=None,
                            names=['t', 'x', 'y', 'pol'],
                            dtype={'t': np.float64, 'x': np.int16, 'y': np.int16, 'pol': np.int16},
                            engine='c',

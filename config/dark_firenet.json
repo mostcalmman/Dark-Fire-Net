@@ -12,7 +12,7 @@
     "data_loader": {
         "type": "HDF5DataLoader",
         "args": {
-            "data_file": "..\\dataset\\HQF\\",
+            "data_file": "../dataset/HQF/",
             "batch_size": 2,
             "shuffle": true,
             "num_workers": 0,
@@ -95,7 +95,7 @@
     },
     "trainer": {
         "epochs": 10,
-        "save_dir": ".\\checkpoints\\quick_test_HQF",
+        "save_dir": "./checkpoints/quick_test_HQF",
         "save_period": 5,
         "verbosity": 2,
         "monitor": "min loss",
