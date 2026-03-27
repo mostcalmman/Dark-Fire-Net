@@ -126,3 +126,4 @@ __MACOSX/
 /config/ct_exp
 
 *.pdf
+checkpoints/
