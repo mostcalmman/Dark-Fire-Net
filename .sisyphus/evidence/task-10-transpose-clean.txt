@@ -1,0 +1,23 @@
+# Task 10: Transpose Clean Evidence
+# Date: 2026-03-27
+
+## Changes Made
+Replaced in-place transpose_() with non-in-place transpose() in utils/loss.py
+
+## Verification
+- No `.transpose_(0, 1)` remaining in file (grep confirmed)
+- Found `xx = xx.transpose(0, 1)` at lines 26 and 81
+- Both xx and yy changed in both locations (4 total changes)
+
+## Original vs New
+Lines 26-27 (temporal_consistency_loss):
+- Before: xx.transpose_(0, 1) / yy.transpose_(0, 1)
+- After:  xx = xx.transpose(0, 1) / yy = yy.transpose(0, 1)
+
+Lines 81-82 (warping_flow_loss):
+- Before: xx.transpose_(0, 1) / yy.transpose_(0, 1)
+- After:  xx = xx.transpose(0, 1) / yy = yy.transpose(0, 1)
+
+## Notes
+- Lines 121+ (voxel_warping_flow_loss) untouched - no transpose_() calls there
+- Meshgrid calls left unchanged (Task 7)

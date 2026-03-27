@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 # local modules
-from PerceptualSimilarity import models
+import lpips
 from utils import loss
 
 
@@ -95,9 +95,11 @@ flow_loss = flow_l1_loss
 class perceptual_loss():
     def __init__(self, weight=1.0, net='alex', use_gpu=True):
         """
-        Wrapper for PerceptualSimilarity.models.PerceptualLoss
+        Wrapper for lpips.LPIPS perceptual loss
         """
-        self.model = models.PerceptualLoss(net=net, use_gpu=use_gpu)
+        self.model = lpips.LPIPS(net=net)
+        if use_gpu:
+            self.model = self.model.cuda()
         self.weight = weight
 
     def __call__(self, pred, target, normalize=True):

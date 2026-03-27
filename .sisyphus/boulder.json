@@ -1,12 +1,42 @@
 {
-  "active_plan": "E:\\research\\HQF\\.sisyphus\\plans\\dark-firenet.md",
-  "started_at": "2026-03-20T02:47:59.925Z",
+  "active_plan": "E:\\research\\HQF\\.sisyphus\\plans\\modernize-hqf.md",
+  "started_at": "2026-03-26T19:55:07.749Z",
   "session_ids": [
-    "ses_303595e71ffeWOfcdhxEpdKEs6",
-    "ses_2f6daa0fcffey0CI2dmgIhZrjf",
-    "ses_2f6d78732ffebzKU02q6R1pQVV",
-    "ses_2f6d39ec7ffeYSBwIORYHHSZ5p"
+    "ses_2d448fba5ffeOVM3W78e60jUX0",
+    "ses_2d43d8f01ffef5gNXImavCxJQT",
+    "ses_2d43db3d5ffe7WzYnMFWgPxc4D",
+    "ses_2d43ddae9ffelRrQYgX8Km4Skl",
+    "ses_2d43d745affewoViDk0ECbp6fV",
+    "ses_2d43cc0b1ffeLIx1GEwgahUeZU",
+    "ses_2d43c8ff0ffeeohUV2wO10EciV",
+    "ses_2d43ceb21ffeJU3NL8OhvUDTlb",
+    "ses_2d43d41b0ffewyZx0Pt7BK8pgL",
+    "ses_2d43b7b45ffeO2NUZ6wXLoETsJ",
+    "ses_2d43b9c04ffeWldC8VOwIaMm1Y",
+    "ses_2d43bd83dffeMbAPXs4EzQRZiz",
+    "ses_2d43c3a84ffeMswRFrTZBJ9Jpp",
+    "ses_2d435d5b0ffee3N1KwwWS9x6Ph"
   ],
-  "plan_name": "dark-firenet",
-  "agent": "atlas"
+  "plan_name": "modernize-hqf",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Update requirements.txt with all dependencies",
+      "session_id": "ses_2d43cc0b1ffeLIx1GEwgahUeZU",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-03-26T20:09:32.515Z"
+    },
+    "todo:13": {
+      "task_key": "todo:13",
+      "task_label": "13",
+      "task_title": "Migrate PerceptualSimilarity to standard lpips package",
+      "session_id": "ses_2d435d5b0ffee3N1KwwWS9x6Ph",
+      "agent": "Sisyphus-Junior",
+      "category": "deep",
+      "updated_at": "2026-03-26T20:20:58.352Z"
+    }
+  }
 }

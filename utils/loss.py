@@ -19,12 +19,12 @@ def temporal_consistency_loss(image0, image1, processed0, processed1, flow01, al
         :param alpha: used for computation of the visibility mask (default: 50.0)
     """
     t_width, t_height = image0.shape[3], image0.shape[2]
-    xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height))  # xx, yy -> WxH
+    xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height), indexing='ij')  # xx, yy -> WxH
     #xx, yy = xx.to(image0.device), yy.to(image0.device)
     xx = xx.to(image0.device)
     yy = yy.to(image0.device)
-    xx.transpose_(0, 1)
-    yy.transpose_(0, 1)
+    xx = xx.transpose(0, 1)
+    yy = yy.transpose(0, 1)
     xx, yy = xx.float(), yy.float()
 
     flow01_x = flow01[:, 0, :, :]  # N x H x W
@@ -76,10 +76,10 @@ def warping_flow_loss(image0, image1, flow01):
         :param flow01: [N x 2 x H x W] displacement map from image1 to image0
     """
     t_width, t_height = image0.shape[3], image0.shape[2]
-    xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height))  # xx, yy -> WxH
+    xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height), indexing='ij')  # xx, yy -> WxH
     xx, yy = xx.to(image0.device), yy.to(image0.device)
-    xx.transpose_(0, 1)
-    yy.transpose_(0, 1)
+    xx = xx.transpose(0, 1)
+    yy = yy.transpose(0, 1)
     xx, yy = xx.float(), yy.float()
 
     flow01_x = flow01[:, 0, :, :]  # N x H x W
@@ -118,7 +118,7 @@ def voxel_warping_flow_loss(voxel, displacement, output_images=False, reverse_ti
         displacement = -displacement
     v_shape = voxel.size()
     t_width, t_height, t_channels = v_shape[3], v_shape[2], v_shape[1]
-    xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height))  # xx, yy -> WxH
+    xx, yy = torch.meshgrid(torch.arange(t_width), torch.arange(t_height), indexing='ij')  # xx, yy -> WxH
     xx, yy = xx.to(voxel.device).float(), yy.to(voxel.device).float()
 
     displacement_x = displacement[:, 1, :, :]  # N x H x W

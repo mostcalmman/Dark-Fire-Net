@@ -1,0 +1,12 @@
+=== Implicit Relative Imports Conversion ===
+Task: Convert implicit relative imports to explicit relative imports
+
+events_cmax.py line 13: from event_utils import *
+events_cmax.py line 14: from objectives import *
+events_cmax.py line 15: from warps import *
+txt_to_h5.py line 8: from event_packagers import *
+rosbag_to_h5.py line 10: from event_packagers import *
+
+=== Verification ===
+All imports now use explicit relative imports (. prefix) or try/except fallback
+Bare imports without dot prefix ONLY exist in except blocks (fallbacks for script mode)

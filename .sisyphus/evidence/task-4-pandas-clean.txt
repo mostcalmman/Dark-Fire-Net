@@ -1,0 +1,13 @@
+Task 4: Replace deprecated pandas delim_whitespace parameter with sep=r'\s+'
+
+File: events_contrast_maximization/tools/txt_to_h5.py
+
+Verification:
+- No 'delim_whitespace' found in file: PASS (0 matches)
+- Has 'sep=r'\s+'' in file: PASS (2 occurrences at lines 15 and 42)
+
+Changes made:
+1. Line 12 (now 15): Changed delim_whitespace=True to sep=r'\s+'
+2. Line 39 (now 42): Changed delim_whitespace=True to sep=r'\s+'
+
+Other parameters (header, names, dtype, nrows) kept unchanged.

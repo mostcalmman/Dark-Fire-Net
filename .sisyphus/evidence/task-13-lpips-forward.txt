@@ -1,0 +1,14 @@
+Evidence: LPIPS forward() API compatibility verified
+Date: 2026-03-27
+
+lpips.LPIPS.forward(in0, in1, retPerLayer=False, normalize=False)
+- normalize parameter: scales [0,1] to [-1,1] (same as old PerceptualLoss)
+- Returns tensor with shape [N,1,1,1] via spatial_average(..., keepdim=True)
+- Existing call: self.model.forward(pred, target, normalize=normalize) is fully compatible
+
+Verified from installed lpips source:
+  C:\Users\ASUS\.conda\envs\event_cnn\lib\site-packages\lpips\lpips.py line 112
+
+Note: torch DLL loading is broken in event_cnn env (WinError 182 on shm.dll),
+preventing runtime verification. Syntax check passed. API compatibility confirmed
+by source code inspection.

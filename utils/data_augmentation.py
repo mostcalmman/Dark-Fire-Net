@@ -284,9 +284,9 @@ class RandomRotationFlip(object):
         angle = random.uniform(degrees[0], degrees[1])
         angle_rad = angle * pi / 180.0
 
-        M_original_transformed = torch.FloatTensor([[cos(angle_rad), -sin(angle_rad), 0],
-                                                    [sin(angle_rad), cos(angle_rad), 0],
-                                                    [0, 0, 1]])
+        M_original_transformed = torch.tensor([[cos(angle_rad), -sin(angle_rad), 0],
+                                                [sin(angle_rad), cos(angle_rad), 0],
+                                                [0, 0, 1]], dtype=torch.float32)
 
         if random.random() < p_hflip:
             M_original_transformed[:, 0] *= -1

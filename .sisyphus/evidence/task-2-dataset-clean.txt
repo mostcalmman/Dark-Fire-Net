@@ -1,0 +1,15 @@
+Verification: data_loader/dataset.py - np.int replacement complete
+===========================================================
+Date: 2026-03-27
+File: data_loader/dataset.py
+Line changed: 139
+
+BEFORE:
+  xs.astype(np.int), ys.astype(np.int)
+
+AFTER:
+  xs.astype(np.int64), ys.astype(np.int64)
+
+Verification result: No np.int (without suffix) remains in this file.
+Search pattern used: np\.int\b
+Result: No matches found

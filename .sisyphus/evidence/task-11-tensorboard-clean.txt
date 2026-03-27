@@ -1,0 +1,21 @@
+TASK-11: TensorBoard import warning message update - VERIFIED
+
+Date: 2026-03-27
+File: logger/visualization.py
+
+CHANGES MADE:
+- Lines 25-27: Updated warning message to remove tensorboardX reference
+
+BEFORE:
+"Please install TensorboardX with 'pip install tensorboardx', upgrade PyTorch to 
+version >= 1.1 to use 'torch.utils.tensorboard' or turn off the option in the 'config.json' file."
+
+AFTER:
+"Please install tensorboard with 'pip install tensorboard' or turn off the option in the 'config.json' file."
+
+VERIFICATION:
+- [x] grep "pip install tensorboard" finds match in logger/visualization.py
+- [x] grep "tensorboardx" returns no matches in logger/ (fallback code preserved but not mentioned in warning)
+- [x] Fallback mechanism (lines 15-22) unchanged - still tries torch.utils.tensorboard then tensorboardX
+
+COMPLETED BY: Sisyphus-Junior

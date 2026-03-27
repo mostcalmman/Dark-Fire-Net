@@ -1,0 +1,32 @@
+# Evidence: .data.size() replaced with .size() in model/submodules.py
+
+## Task: Replace deprecated .data.size() with .size()
+
+### Changes Applied (6 occurrences):
+
+1. ConvLSTM.forward() - Lines 197-198 (now 197-198 after edit):
+   - BEFORE: input_.data.size()[0]
+   - AFTER:  input_.size()[0]
+   - BEFORE: input_.data.size()[2:]
+   - AFTER:  input_.size()[2:]
+
+2. ConvGRU.forward() - Lines 263-264 (now 263-264 after edit):
+   - BEFORE: input_.data.size()[0]
+   - AFTER:  input_.size()[0]
+   - BEFORE: input_.data.size()[2:]
+   - AFTER:  input_.size()[2:]
+
+3. LightAwareConvGRU.forward() - Lines 349-350 (now 349-350 after edit):
+   - BEFORE: input_.data.size()[0]
+   - AFTER:  input_.size()[0]
+   - BEFORE: input_.data.size()[2:]
+   - AFTER:  input_.size()[2:]
+
+### Verification Command:
+grep -n "\.data\.size\(\)" model/submodules.py
+# Result: No matches found
+
+### Why This Change Is Safe:
+- .data was used in PyTorch < 0.4 when tensors wrapped Variable
+- Since PyTorch 0.4, tensors ARE variables, so .data is unnecessary for size queries
+- Using .size() is the modern, recommended approach

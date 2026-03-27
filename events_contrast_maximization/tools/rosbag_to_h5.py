@@ -6,7 +6,10 @@ from cv_bridge import CvBridge, CvBridgeError
 import os
 import h5py
 import numpy as np
-from event_packagers import *
+try:
+    from event_packagers import *
+except ImportError:
+    from .event_packagers import *
 
 
 def append_to_dataset(dataset, data):
