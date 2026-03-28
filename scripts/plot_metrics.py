@@ -5,44 +5,49 @@ import matplotlib.pyplot as plt
 
 def parse_log(log_path):
     """Parse info.log to extract epoch metrics."""
-    epochs, loss, lpips, ssim, mse = [], [], [], [], []
+    data = {}
     
     with open(log_path, 'r') as f:
         current_epoch = None
+        epoch_data = {}
+        
         for line in f:
-            # Match epoch number
-            epoch_match = re.search(r'epoch\s*:\s*(\d+)', line, re.IGNORECASE)
-            if epoch_match:
-                current_epoch = int(epoch_match.group(1))
+            if 'epoch' in line and ':' in line:
+                match = re.search(r'epoch\s*:\s*(\d+)', line)
+                if match:
+                    if current_epoch and epoch_data:
+                        data[current_epoch] = epoch_data
+                    current_epoch = int(match.group(1))
+                    epoch_data = {}
             
-            if current_epoch is None:
-                continue
-            
-            # Match metrics (handle both 'loss' and 'val_loss')
-            if re.search(r'\bloss\s*:', line, re.IGNORECASE):
-                loss_match = re.search(r':\s*([\d.]+)', line)
-                if loss_match and current_epoch not in epochs:
-                    epochs.append(current_epoch)
-                    loss.append(float(loss_match.group(1)))
-            
-            if 'raw_lpips' in line.lower():
-                lpips_match = re.search(r':\s*([\d.]+)', line)
-                if lpips_match:
-                    lpips.append(float(lpips_match.group(1)))
-            
-            if 'raw_ssim' in line.lower():
-                ssim_match = re.search(r':\s*([\d.]+)', line)
-                if ssim_match:
-                    ssim.append(float(ssim_match.group(1)))
-            
-            if 'raw_mse' in line.lower():
-                mse_match = re.search(r':\s*([\d.]+)', line)
-                if mse_match:
-                    mse.append(float(mse_match.group(1)))
+            if current_epoch:
+                if 'loss' in line and 'raw' not in line:
+                    match = re.search(r'loss\s*:\s*([\d.]+)', line)
+                    if match:
+                        epoch_data['loss'] = float(match.group(1))
+                elif 'raw_lpips' in line:
+                    match = re.search(r'raw_lpips\s*:\s*([\d.]+)', line)
+                    if match:
+                        epoch_data['lpips'] = float(match.group(1))
+                elif 'raw_ssim' in line:
+                    match = re.search(r'raw_ssim\s*:\s*([\d.]+)', line)
+                    if match:
+                        epoch_data['ssim'] = float(match.group(1))
+                elif 'raw_mse' in line:
+                    match = re.search(r'raw_mse\s*:\s*([\d.]+)', line)
+                    if match:
+                        epoch_data['mse'] = float(match.group(1))
+        
+        if current_epoch and epoch_data:
+            data[current_epoch] = epoch_data
     
-    # Ensure all lists have same length
-    min_len = min(len(epochs), len(loss), len(lpips), len(ssim), len(mse))
-    return epochs[:min_len], loss[:min_len], lpips[:min_len], ssim[:min_len], mse[:min_len]
+    epochs = sorted(data.keys())
+    loss = [data[e].get('loss', 0) for e in epochs]
+    lpips = [data[e].get('lpips', 0) for e in epochs]
+    ssim = [data[e].get('ssim', 0) for e in epochs]
+    mse = [data[e].get('mse', 0) for e in epochs]
+    
+    return epochs, loss, lpips, ssim, mse
 
 def plot_metrics(epochs, loss, lpips, ssim, mse, save_path):
     """Plot metrics over epochs."""
