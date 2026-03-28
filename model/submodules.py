@@ -311,8 +311,6 @@ class LightAwareConvGRU(nn.Module):
     - High density (bright scene): update gate operates normally
     - Low density (dark scene): update gate is suppressed → more temporal memory retained
 
-    Additionally applies SE (Squeeze-Excitation) channel attention on the hidden state output.
-
     Interface is identical to ConvGRU: forward(input_, prev_state) -> new_state tensor.
     """
 
@@ -328,13 +326,9 @@ class LightAwareConvGRU(nn.Module):
         self.out_gate    = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
 
         # Density modulation: learns a mapping from normalized density map [B,1,H,W] to update gate scale
+        # Initialize bias to +2.0 so sigmoid starts near 0.88, avoiding heavily suppressed updates
         self.density_gate = nn.Conv2d(1, 1, kernel_size=1)
-
-        # SE (Squeeze-Excitation) channel attention on hidden state
-        r = max(1, hidden_size // 4)  # reduction ratio, safe for small hidden_size
-        self.se_avg = nn.AdaptiveAvgPool2d(1)
-        self.se_fc1 = nn.Linear(hidden_size, r, bias=False)
-        self.se_fc2 = nn.Linear(r, hidden_size, bias=False)
+        init.constant_(self.density_gate.bias, 2.0)
 
         # Weight initialization (identical to ConvGRU)
         init.orthogonal_(self.reset_gate.weight)
@@ -354,30 +348,101 @@ class LightAwareConvGRU(nn.Module):
             state_size = [batch_size, self.hidden_size] + list(spatial_size)
             prev_state = torch.zeros(state_size, dtype=input_.dtype).to(input_.device)
 
-        # === Density map: computed from input voxel, no extra input needed ===
+        # === Density map: proxy for illumination ===
         # [B, num_bins, H, W] -> [B, 1, H, W], normalized to [0, 1]
         density = input_.abs().sum(dim=1, keepdim=True)
-        # Use .view().max() for PyTorch version compatibility (avoids .amax())
         density_max = density.view(batch_size, -1).max(dim=1)[0].view(batch_size, 1, 1, 1)
         density = density / (density_max + 1e-6)
-        # Learn a mapping from density to update gate modulation coefficient
         density_modulation = torch.sigmoid(self.density_gate(density))  # [B, 1, H, W]
 
-        # === Standard GRU gating (identical logic to ConvGRU) ===
+        # === Standard GRU gating (identical to ConvGRU) ===
         stacked = torch.cat([input_, prev_state], dim=1)
         update  = torch.sigmoid(self.update_gate(stacked))
         reset   = torch.sigmoid(self.reset_gate(stacked))
         out_inp = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
 
-        # === Density modulation: suppress update in dark/low-density scenes ===
-        update = update * density_modulation  # low density -> small update -> preserve prev_state
+        # === Density modulation: the ONLY difference from ConvGRU ===
+        # Low density (dark) → small modulation → small update → preserve prev_state (more memory)
+        # High density (bright) → large modulation → normal update
+        update = update * density_modulation
 
         new_state = prev_state * (1 - update) + out_inp * update
 
-        # === SE channel attention on new_state ===
-        se = self.se_avg(new_state).view(batch_size, self.hidden_size)          # [B, C]
-        se = torch.relu(self.se_fc1(se))                                         # [B, r]
-        se = torch.sigmoid(self.se_fc2(se)).view(batch_size, self.hidden_size, 1, 1)  # [B, C, 1, 1]
-        new_state = new_state * se
+        return new_state
 
-        return new_state  # tensor, NOT tuple — identical interface to ConvGRU
+
+class LAGConvGRU(nn.Module):
+    """
+    GRU with Local Adaptation Gate (LAG), faithfully adapted from the LSTM-based
+    LAG in ref/submodules.py (NAM_Complete_add, NAM_withoutGCB, etc.).
+
+    Original LAG (LSTM, ref/submodules.py):
+        i_t = σ(...)                          # input gate
+        f_t = σ(...)                          # forget gate
+        α   = exp(σ(LAG_conv(x_t)))           # α ∈ (1, e) ≈ (1, 2.718)
+        f_t = σ(f_t - α · i_t)               # LAG: couple forget gate with input gate
+        c   = f_t · c_prev + i_t · g_t
+
+    GRU adaptation:
+        GRU update gate z ↔ LSTM input gate i (how much new info to accept)
+        GRU (1 - z)       ↔ LSTM forget gate f (how much old state to keep)
+        GRU: h = (1-z)·h_prev + z·candidate
+
+        Faithful mapping of LAG to GRU:
+          ref:  f_new = σ(f - α·i),  then c = f_new·c_prev + i·g
+          GRU:  forget = (1 - z), so:
+                forget_new = σ((1-z) - α·z)
+                h = forget_new · h_prev + z · candidate
+
+        Effect: bright scene → large z (update) → α·z large → forget drops → more new info
+                dark scene  → small z (update) → α·z small → forget stays high → preserve memory
+
+    Interface identical to ConvGRU: forward(input_, prev_state) -> new_state tensor.
+    """
+
+    def __init__(self, input_size, hidden_size, kernel_size):
+        super().__init__()
+        padding = kernel_size // 2
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        # Standard GRU gates (identical structure to ConvGRU)
+        self.reset_gate  = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.update_gate = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.out_gate    = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+
+        # LAG: learnable 1x1 conv on input features, identical to ref
+        self.LAG_conv = nn.Conv2d(input_size, input_size, kernel_size=1, stride=1, padding=0, bias=False)
+
+        # Weight initialization (identical to ConvGRU)
+        init.orthogonal_(self.reset_gate.weight)
+        init.orthogonal_(self.update_gate.weight)
+        init.orthogonal_(self.out_gate.weight)
+        init.constant_(self.reset_gate.bias, 0.)
+        init.constant_(self.update_gate.bias, 0.)
+        init.constant_(self.out_gate.bias, 0.)
+
+    def forward(self, input_, prev_state):
+        batch_size = input_.size()[0]
+        spatial_size = input_.size()[2:]
+
+        if prev_state is None:
+            state_size = [batch_size, self.hidden_size] + list(spatial_size)
+            prev_state = torch.zeros(state_size, dtype=input_.dtype).to(input_.device)
+
+        # === Standard GRU gating ===
+        stacked = torch.cat([input_, prev_state], dim=1)
+        update = torch.sigmoid(self.update_gate(stacked))
+        reset  = torch.sigmoid(self.reset_gate(stacked))
+        out_inp = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
+
+        # === LAG (Local Adaptation Gate) ===
+        # Identical formula to ref: alpha = exp(sigmoid(LAG_conv(x)))
+        alpha = torch.exp(torch.sigmoid(self.LAG_conv(input_)))  # α ∈ (1, e)
+        # Ref LSTM: f_new = σ(f - α·i)
+        # GRU equiv: forget_new = σ((1 - update) - α · update)
+        forget_new = torch.sigmoid((1.0 - update) - alpha * update)
+
+        new_state = forget_new * prev_state + update * out_inp
+
+        return new_state
