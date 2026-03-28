@@ -100,3 +100,5 @@ if __name__ == '__main__':
     else:
         print(f"Found {len(epochs)} epochs of data")
         plot_metrics(epochs, loss, lpips, ssim, mse, output_path)
+
+# python scripts/plot_metrics.py --log /path/to/info.log

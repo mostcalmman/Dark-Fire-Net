@@ -240,10 +240,13 @@ class Trainer(BaseTrainer):
                     msg += ' {}: {:.4f}'.format(k, v.item())
                 self.logger.debug(msg)
 
-            if batch_idx in self.val_preview_indices and (epoch - 1) % self.save_period == 0:
-                self.preview(sequence, epoch, tag_prefix=f'val_{i}')
-                self.save_validation_images(sequence, epoch, batch_idx)
+            if batch_idx in self.val_preview_indices:
+                if (epoch - 1) % self.save_period == 0:
+                    self.preview(sequence, epoch, tag_prefix=f'val_{i}')
                 i += 1
+            
+            if epoch == self.epochs:
+                self.save_validation_images(sequence, epoch, batch_idx)
 
         return self.valid_metrics.result()
 
