@@ -3,6 +3,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import lpips
+from pathlib import Path
+from torchvision.utils import save_image
 # local modules
 from base import BaseTrainer
 from utils import inf_loop, MetricTracker
@@ -240,6 +242,7 @@ class Trainer(BaseTrainer):
 
             if batch_idx in self.val_preview_indices and (epoch - 1) % self.save_period == 0:
                 self.preview(sequence, epoch, tag_prefix=f'val_{i}')
+                self.save_validation_images(sequence, epoch, batch_idx)
                 i += 1
 
         return self.valid_metrics.result()
@@ -315,3 +318,21 @@ class Trainer(BaseTrainer):
             if loss_ftn.__class__.__name__ == loss_name:
                 return loss_ftn
         return None
+
+    def save_validation_images(self, sequence, epoch, batch_idx):
+        """Save original and reconstructed images as PNG during validation."""
+        save_dir = Path(self.checkpoint_dir) / 'validation_images' / f'epoch_{epoch}'
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        self.model.eval()
+        self.model.reset_states()
+        with torch.no_grad():
+            for i, item in enumerate(sequence):
+                item = {k: v[0:1, ...] for k, v in item.items()}
+                events, image, flow = self.to_device(item)
+                pred = self.model(events)
+                pred_image = pred['image']
+                
+                # Save original and reconstructed images
+                save_image(image, save_dir / f'batch{batch_idx}_frame{i:03d}_original.png')
+                save_image(pred_image, save_dir / f'batch{batch_idx}_frame{i:03d}_reconstructed.png')
