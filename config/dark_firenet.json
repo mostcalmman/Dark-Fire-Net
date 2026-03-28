@@ -13,9 +13,9 @@
         "type": "HDF5DataLoader",
         "args": {
             "data_file": "./datasets/HQF/train_list.txt",
-            "batch_size": 2,
+            "batch_size": 12,
             "shuffle": true,
-            "num_workers": 0,
+            "num_workers": 16,
             "pin_memory": true,
             "sequence_kwargs": {
                 "sequence_length": 40,
@@ -47,9 +47,9 @@
         "type": "HDF5DataLoader",
         "args": {
             "data_file": "./datasets/HQF/val_list.txt",
-            "batch_size": 1,
+            "batch_size": 12,
             "shuffle": false,
-            "num_workers": 0,
+            "num_workers": 16,
             "pin_memory": true,
             "sequence_kwargs": {
                 "sequence_length": 320,
@@ -63,7 +63,7 @@
                         }
                     },
                     "num_bins": 5,
-                    "combined_voxel_channels": false
+                    "combined_voxel_channels": true
                 }
             }
         }

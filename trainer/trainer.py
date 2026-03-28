@@ -1,9 +1,12 @@
 import collections
 import numpy as np
 import torch
+import torch.nn.functional as F
+import lpips
 # local modules
 from base import BaseTrainer
 from utils import inf_loop, MetricTracker
+import utils.loss as loss_utils
 from utils.myutil import mean
 from utils.training_utils import make_flow_movie, select_evenly_spaced_elements, make_tc_vis, make_vw_vis
 from utils.data import data_sources
@@ -27,17 +30,28 @@ class Trainer(BaseTrainer):
             self.len_epoch = len_epoch
         self.valid_data_loader = valid_data_loader
         self.do_validation = self.valid_data_loader is not None
-        # [LSR]
-        self.do_validation = False
         self.lr_scheduler = lr_scheduler
         self.log_step = max(len(data_loader) // 100, 1)
         self.val_log_step = max(len(valid_data_loader) // 100, 1)
 
-        mt_keys = ['loss']
+        self.raw_metric_keys = ('raw_ssim', 'raw_mse', 'raw_lpips', 'raw_tc')
+        self.tc_l0 = 1
+        for loss_ftn in self.loss_ftns:
+            if loss_ftn.__class__.__name__ == 'temporal_consistency_loss':
+                self.tc_l0 = loss_ftn.L0
+                break
+
+        self.lpips_metric = lpips.LPIPS(net='vgg')
+        self.lpips_metric = self.lpips_metric.to(self.device)
+        self.lpips_metric.eval()
+
+        mt_keys = ['loss'] + list(self.raw_metric_keys)
         for data_source in data_sources:
             mt_keys.append(f'loss/{data_source}')
             for l in self.loss_ftns:
                 mt_keys.append(f'{l.__class__.__name__}/{data_source}')
+            for metric_key in self.raw_metric_keys:
+                mt_keys.append(f'{metric_key}/{data_source}')
         self.train_metrics = MetricTracker(*mt_keys, writer=self.writer)
         self.valid_metrics = MetricTracker(*mt_keys, writer=self.writer)
 
@@ -55,21 +69,46 @@ class Trainer(BaseTrainer):
 
     def forward_sequence(self, sequence, all_losses=False):
         losses = collections.defaultdict(list)
+        raw_metrics = collections.defaultdict(list)
         self.model.reset_states()
+        prev_image = None
+        prev_pred_image = None
         for i, item in enumerate(sequence):
             events, image, flow = self.to_device(item)
             pred = self.model(events)
+            pred_image = pred['image']
+
+            with torch.no_grad():
+                pred_image_detached = pred_image.detach()
+                image_detached = image.detach()
+                raw_metrics['raw_mse'].append(F.mse_loss(pred_image_detached, image_detached))
+                raw_metrics['raw_ssim'].append(self.compute_ssim(pred_image_detached, image_detached))
+                raw_metrics['raw_lpips'].append(self.compute_lpips(pred_image_detached, image_detached))
+
+                if prev_image is not None and flow is not None and i >= self.tc_l0:
+                    tc_raw = loss_utils.temporal_consistency_loss(
+                        prev_image,
+                        image_detached,
+                        prev_pred_image,
+                        pred_image_detached,
+                        -flow.detach(),
+                    )
+                    raw_metrics['raw_tc'].append(tc_raw)
+
+                prev_image = image_detached
+                prev_pred_image = pred_image_detached
+
             for loss_ftn in self.loss_ftns:
                 loss_name = loss_ftn.__class__.__name__
                 tmp_weight = loss_ftn.weight 
                 if all_losses:
                     loss_ftn.weight = 1.0
                 if loss_name == 'perceptual_loss':
-                    losses[loss_name].append(loss_ftn(pred['image'], image, normalize=True))
+                    losses[loss_name].append(loss_ftn(pred_image, image, normalize=True))
                 if loss_name == 'l2_loss':
-                    losses[loss_name].append(loss_ftn(pred['image'], image))
+                    losses[loss_name].append(loss_ftn(pred_image, image))
                 if loss_name == 'temporal_consistency_loss':
-                    l = loss_ftn(i, image, pred['image'], flow)
+                    l = loss_ftn(i, image, pred_image, flow)
                     if l is not None:
                         losses[loss_name].append(l)
                 if loss_name in ['flow_loss', 'flow_l1_loss'] and flow is not None:
@@ -83,14 +122,49 @@ class Trainer(BaseTrainer):
                 if loss_name == 'flow_perceptual_loss':
                     losses[loss_name].append(loss_ftn(pred['flow'], flow))
                 if loss_name == 'combined_perceptual_loss':
-                    losses[loss_name].append(loss_ftn(pred['image'], pred['flow'], image, flow))
+                    losses[loss_name].append(loss_ftn(pred_image, pred['flow'], image, flow))
                 loss_ftn.weight = tmp_weight
         idx = int(item['data_source_idx'].mode().values.item())
         data_source = data_sources[idx]
         losses = {f'{k}/{data_source}': mean(v) for k, v in losses.items()}
         losses['loss'] = sum(losses.values())
         losses[f'loss/{data_source}'] = losses['loss']
+
+        raw_metrics = {k: mean(v) for k, v in raw_metrics.items()}
+        for metric_key in self.raw_metric_keys:
+            metric_val = raw_metrics.get(metric_key, torch.tensor(0.0, device=self.device))
+            losses[metric_key] = metric_val
+            losses[f'{metric_key}/{data_source}'] = metric_val
+
         return losses
+
+    def compute_lpips(self, pred, target):
+        if pred.shape[1] == 1:
+            pred = torch.cat([pred, pred, pred], dim=1)
+        if target.shape[1] == 1:
+            target = torch.cat([target, target, target], dim=1)
+        return self.lpips_metric.forward(pred, target, normalize=True).mean()
+
+    def compute_ssim(self, pred, target):
+        pred = torch.clamp(pred, 0.0, 1.0)
+        target = torch.clamp(target, 0.0, 1.0)
+
+        reduce_dims = (1, 2, 3)
+        mu_pred = pred.mean(dim=reduce_dims)
+        mu_target = target.mean(dim=reduce_dims)
+
+        pred_centered = pred - mu_pred.view(-1, 1, 1, 1)
+        target_centered = target - mu_target.view(-1, 1, 1, 1)
+        var_pred = (pred_centered ** 2).mean(dim=reduce_dims)
+        var_target = (target_centered ** 2).mean(dim=reduce_dims)
+        cov = (pred_centered * target_centered).mean(dim=reduce_dims)
+
+        c1 = 0.01 ** 2
+        c2 = 0.03 ** 2
+        numerator = (2.0 * mu_pred * mu_target + c1) * (2.0 * cov + c2)
+        denominator = (mu_pred ** 2 + mu_target ** 2 + c1) * (var_pred + var_target + c2)
+        ssim = numerator / (denominator + 1e-8)
+        return ssim.mean()
 
     def _train_epoch(self, epoch):
         """
@@ -119,7 +193,7 @@ class Trainer(BaseTrainer):
             if batch_idx % self.log_step == 0:
                 msg = 'Train Epoch: {} {}'.format(epoch, self._progress(batch_idx, self.data_loader))
                 for k, v in losses.items():
-                    msg += ' {}: {:.4f}'.format(k[:4], v.item())
+                    msg += ' {}: {:.4f}'.format(k, v.item())
                 self.logger.debug(msg)
 
             if batch_idx < self.num_previews and (epoch - 1) % self.save_period == 0:
@@ -161,7 +235,7 @@ class Trainer(BaseTrainer):
             if batch_idx % self.val_log_step == 0:
                 msg = 'Valid Epoch: {} {}'.format(epoch, self._progress(batch_idx, self.valid_data_loader))
                 for k, v in losses.items():
-                    msg += ' {}: {:.4f}'.format(k[:4], v.item())
+                    msg += ' {}: {:.4f}'.format(k, v.item())
                 self.logger.debug(msg)
 
             if batch_idx in self.val_preview_indices and (epoch - 1) % self.save_period == 0:
