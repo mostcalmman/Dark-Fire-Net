@@ -323,18 +323,26 @@ class Trainer(BaseTrainer):
         return None
 
     def save_validation_images(self, sequence, epoch, batch_idx):
-        """Save original and reconstructed images as PNG during validation."""
+        """Save original and reconstructed images as PNG during validation.
+        
+        Reuses the same model forward pass as validation (no reset_states).
+        Processes the sequence frame by frame, accumulating recurrent states
+        naturally, then saves the results.
+        """
         save_dir = Path(self.checkpoint_dir) / 'validation_images' / f'epoch_{epoch}'
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        self.model.eval()
         self.model.reset_states()
         with torch.no_grad():
             for i, item in enumerate(sequence):
-                item = {k: v[0:1, ...] for k, v in item.items()}
-                events, image, flow = self.to_device(item)
+                item_single = {k: v[0:1, ...] for k, v in item.items()}
+                events, image, flow = self.to_device(item_single)
                 pred = self.model(events)
                 pred_image = pred['image']
+                
+                # Clamp to [0,1] before saving (model output has no final activation)
+                pred_image = torch.clamp(pred_image, 0.0, 1.0)
+                image = torch.clamp(image, 0.0, 1.0)
                 
                 # Save original and reconstructed images
                 save_image(image, save_dir / f'batch{batch_idx}_frame{i:03d}_original.png')
