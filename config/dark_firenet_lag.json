@@ -94,7 +94,7 @@
         }
     },
     "trainer": {
-        "epochs": 10,
+        "epochs": 200,
         "save_dir": "./checkpoints/HQF",
         "save_period": 5,
         "verbosity": 2,

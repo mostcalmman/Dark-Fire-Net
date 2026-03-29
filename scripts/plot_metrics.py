@@ -1,104 +1,190 @@
-import re
 import argparse
+import re
 from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-def parse_log(log_path):
-    """Parse info.log to extract epoch metrics."""
-    data = {}
-    
-    with open(log_path, 'r') as f:
-        current_epoch = None
-        epoch_data = {}
-        
-        for line in f:
-            if 'epoch' in line and ':' in line:
-                match = re.search(r'epoch\s*:\s*(\d+)', line)
-                if match:
-                    if current_epoch and epoch_data:
-                        data[current_epoch] = epoch_data
-                    current_epoch = int(match.group(1))
-                    epoch_data = {}
-            
-            if current_epoch:
-                if 'loss' in line and 'raw' not in line:
-                    match = re.search(r'loss\s*:\s*([\d.]+)', line)
-                    if match:
-                        epoch_data['loss'] = float(match.group(1))
-                elif 'raw_lpips' in line:
-                    match = re.search(r'raw_lpips\s*:\s*([\d.]+)', line)
-                    if match:
-                        epoch_data['lpips'] = float(match.group(1))
-                elif 'raw_ssim' in line:
-                    match = re.search(r'raw_ssim\s*:\s*([\d.]+)', line)
-                    if match:
-                        epoch_data['ssim'] = float(match.group(1))
-                elif 'raw_mse' in line:
-                    match = re.search(r'raw_mse\s*:\s*([\d.]+)', line)
-                    if match:
-                        epoch_data['mse'] = float(match.group(1))
-        
-        if current_epoch and epoch_data:
-            data[current_epoch] = epoch_data
-    
-    epochs = sorted(data.keys())
-    loss = [data[e].get('loss', 0) for e in epochs]
-    lpips = [data[e].get('lpips', 0) for e in epochs]
-    ssim = [data[e].get('ssim', 0) for e in epochs]
-    mse = [data[e].get('mse', 0) for e in epochs]
-    
-    return epochs, loss, lpips, ssim, mse
 
-def plot_metrics(epochs, loss, lpips, ssim, mse, save_path):
-    """Plot metrics over epochs."""
-    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    
-    axes[0, 0].plot(epochs, loss, 'b-', linewidth=2)
-    axes[0, 0].set_xlabel('Epoch')
-    axes[0, 0].set_ylabel('Loss')
-    axes[0, 0].set_title('Training Loss')
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    axes[0, 1].plot(epochs, lpips, 'r-', linewidth=2)
-    axes[0, 1].set_xlabel('Epoch')
-    axes[0, 1].set_ylabel('LPIPS')
-    axes[0, 1].set_title('LPIPS (Perceptual Distance)')
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    axes[1, 0].plot(epochs, ssim, 'g-', linewidth=2)
-    axes[1, 0].set_xlabel('Epoch')
-    axes[1, 0].set_ylabel('SSIM')
-    axes[1, 0].set_title('SSIM (Structural Similarity)')
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    axes[1, 1].plot(epochs, mse, 'm-', linewidth=2)
-    axes[1, 1].set_xlabel('Epoch')
-    axes[1, 1].set_ylabel('MSE')
-    axes[1, 1].set_title('MSE (Mean Squared Error)')
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    print(f"Plot saved to {save_path}")
+METRICS = ["loss", "raw_ssim", "raw_mse", "raw_lpips", "raw_tc"]
+VAL_KEY_MAP = {
+	"val_loss": "loss",
+	"val_raw_ssim": "raw_ssim",
+	"val_raw_mse": "raw_mse",
+	"val_raw_lpips": "raw_lpips",
+	"val_raw_tc": "raw_tc",
+}
+PLOT_TITLES = {
+	"loss": "Loss",
+	"raw_ssim": "SSIM",
+	"raw_mse": "MSE",
+	"raw_lpips": "LPIPS",
+	"raw_tc": "TC",
+}
+EXTREMA_MODE = {
+	"loss": "min",
+	"raw_ssim": "max",
+	"raw_mse": "min",
+	"raw_lpips": "min",
+	"raw_tc": "min",
+}
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Plot training metrics from log file')
-    parser.add_argument('--log', type=str, required=True, help='Path to info.log file')
-    parser.add_argument('--output', type=str, default=None, help='Output plot path (default: same dir as log)')
-    args = parser.parse_args()
-    
-    log_path = Path(args.log)
-    if not log_path.exists():
-        raise FileNotFoundError(f"Log file not found: {log_path}")
-    
-    output_path = args.output if args.output else log_path.parent / 'metrics_plot.png'
-    
-    epochs, loss, lpips, ssim, mse = parse_log(log_path)
-    
-    if not epochs:
-        print("No metrics found in log file. Check log format.")
-    else:
-        print(f"Found {len(epochs)} epochs of data")
-        plot_metrics(epochs, loss, lpips, ssim, mse, output_path)
 
-# python scripts/plot_metrics.py --log /path/to/info.log
+def parse_log(log_path: Path):
+	train_records = {}
+	val_records = {}
+	current_epoch = None
+
+	line_pattern = re.compile(
+		r"INFO\s*-\s*(?P<key>[^:]+?)\s*:\s*(?P<value>[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\s*$"
+	)
+
+	with log_path.open("r", encoding="utf-8", errors="ignore") as f:
+		for line in f:
+			m = line_pattern.search(line)
+			if not m:
+				continue
+
+			key = m.group("key").strip()
+			value = float(m.group("value"))
+
+			if key == "epoch":
+				current_epoch = int(value)
+				train_records.setdefault(current_epoch, {})
+				val_records.setdefault(current_epoch, {})
+				continue
+
+			if current_epoch is None:
+				continue
+
+			if key in METRICS:
+				train_records[current_epoch][key] = value
+			elif key in VAL_KEY_MAP:
+				val_metric = VAL_KEY_MAP[key]
+				val_records[current_epoch][val_metric] = value
+
+	return train_records, val_records
+
+
+def extract_series(records, metric):
+	epochs = sorted(epoch for epoch, vals in records.items() if metric in vals)
+	values = [records[epoch][metric] for epoch in epochs]
+	return epochs, values
+
+
+def annotate_extrema(ax, epochs, values, metric):
+	if not epochs:
+		return
+
+	mode = EXTREMA_MODE[metric]
+	if mode == "min":
+		idx = min(range(len(values)), key=lambda i: values[i])
+	else:
+		idx = max(range(len(values)), key=lambda i: values[i])
+
+	x = epochs[idx]
+	y = values[idx]
+	label = f"({x}, {y:.6f})"
+
+	ax.scatter([x], [y], s=52, zorder=6, color="red", edgecolor="black", linewidth=0.6)
+	ax.annotate(
+		label,
+		xy=(x, y),
+		xytext=(6, 6),
+		textcoords="offset points",
+		fontsize=8,
+		color="red",
+		bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "red", "alpha": 0.6},
+	)
+
+
+def plot_all_metrics(train_records, val_records, out_dir: Path):
+	available_metrics = []
+	for metric in METRICS:
+		train_epochs, _ = extract_series(train_records, metric)
+		val_epochs, _ = extract_series(val_records, metric)
+		if train_epochs or val_epochs:
+			available_metrics.append(metric)
+
+	if not available_metrics:
+		return None
+
+	fig = plt.figure(figsize=(14, 10), constrained_layout=True)
+	gs = fig.add_gridspec(3, 2)
+
+	axes = {
+		"loss": fig.add_subplot(gs[0, :]),
+		"raw_ssim": fig.add_subplot(gs[1, 0]),
+		"raw_mse": fig.add_subplot(gs[1, 1]),
+		"raw_lpips": fig.add_subplot(gs[2, 0]),
+		"raw_tc": fig.add_subplot(gs[2, 1]),
+	}
+
+	for metric in METRICS:
+		ax = axes[metric]
+		train_epochs, train_values = extract_series(train_records, metric)
+		val_epochs, val_values = extract_series(val_records, metric)
+
+		if train_epochs:
+			ax.plot(train_epochs, train_values, marker="o", linewidth=1.5, label="Train")
+		if val_epochs:
+			ax.plot(val_epochs, val_values, marker="s", linewidth=1.5, label="Val")
+
+		annotate_extrema(ax, train_epochs, train_values, metric)
+		annotate_extrema(ax, val_epochs, val_values, metric)
+
+		ax.set_title(PLOT_TITLES[metric])
+		ax.set_xlabel("Epoch")
+		ax.set_ylabel(PLOT_TITLES[metric])
+		ax.grid(True, alpha=0.3)
+		if train_epochs or val_epochs:
+			ax.legend()
+
+	out_file = out_dir / "metrics_overview.png"
+	fig.savefig(out_file, dpi=150)
+	plt.close(fig)
+	return out_file
+
+
+def main():
+	parser = argparse.ArgumentParser(
+		description="Visualize train/val metrics from trainer log by epoch."
+	)
+	parser.add_argument(
+		"--log",
+		type=Path,
+		required=True,
+		help="Path to log file (default: info.log)",
+	)
+	parser.add_argument(
+		"--outdir",
+		type=Path,
+		default=None,
+		help="Output directory for figures (default: same directory as --log)",
+	)
+	args = parser.parse_args()
+
+	if not args.log.exists():
+		raise FileNotFoundError(f"Log file not found: {args.log}")
+
+	if args.outdir is None:
+		args.outdir = args.log.parent
+	else:
+		args.outdir.mkdir(parents=True, exist_ok=True)
+
+	train_records, val_records = parse_log(args.log)
+	out_file = plot_all_metrics(train_records, val_records, args.outdir)
+
+	if out_file is None:
+		raise RuntimeError("No target metrics were found in log.")
+
+	print("Generated figure:")
+	print(out_file)
+
+
+if __name__ == "__main__":
+	main()
+
+# python plot_metrics.py --log path/to/info.log
