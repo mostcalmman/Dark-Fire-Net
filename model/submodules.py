@@ -446,3 +446,74 @@ class LAGConvGRU(nn.Module):
         new_state = forget_new * prev_state + update * out_inp
 
         return new_state
+
+
+class PowerLAGConvGRU(nn.Module):
+    """
+    GRU with Power-based Local Adaptation Gate.
+    
+    Uses a novel update formula with learnable α from input features:
+      α = exp(σ(LAG_conv(x)))       # α ∈ (1, e), identical to LAGConvGRU
+      H_t = (1 - Z_t)^α ⊙ H_{t-1} + Z_t ⊙ 	ilde{H}_t
+    
+    Key difference from LAGConvGRU:
+    - LAGConvGRU: forget_new = σ((1-z) - α·z)   # sigmoid coupling
+    - PowerLAGConvGRU: forget_pow = (1-z)^α      # power-based modulation
+    
+    Effect: 
+    - Large α → (1-z)^α becomes smaller → less memory retention (bright scenes)
+    - Small α → (1-z)^α becomes larger → more memory retention (dark scenes)
+    - α ∈ (1, e) ensures (1-z)^α ∈ ((1-z)^e, 1-z), i.e., more aggressive than standard
+    
+    Interface identical to ConvGRU: forward(input_, prev_state) -> new_state tensor.
+    """
+
+    def __init__(self, input_size, hidden_size, kernel_size):
+        super().__init__()
+        padding = kernel_size // 2
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        # Standard GRU gates (identical structure to ConvGRU)
+        self.reset_gate  = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.update_gate = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.out_gate    = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+
+        # LAG: learnable 1x1 conv on input features, identical to LAGConvGRU
+        self.LAG_conv = nn.Conv2d(input_size, input_size, kernel_size=1, stride=1, padding=0, bias=False)
+
+        # Weight initialization (identical to ConvGRU)
+        init.orthogonal_(self.reset_gate.weight)
+        init.orthogonal_(self.update_gate.weight)
+        init.orthogonal_(self.out_gate.weight)
+        init.constant_(self.reset_gate.bias, 0.)
+        init.constant_(self.update_gate.bias, 0.)
+        init.constant_(self.out_gate.bias, 0.)
+
+    def forward(self, input_, prev_state):
+        batch_size = input_.size()[0]
+        spatial_size = input_.size()[2:]
+
+        if prev_state is None:
+            state_size = [batch_size, self.hidden_size] + list(spatial_size)
+            prev_state = torch.zeros(state_size, dtype=input_.dtype).to(input_.device)
+
+        # === Standard GRU gating ===
+        stacked = torch.cat([input_, prev_state], dim=1)
+        update = torch.sigmoid(self.update_gate(stacked))
+        reset  = torch.sigmoid(self.reset_gate(stacked))
+        out_inp = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
+
+        # === Power-based LAG ===
+        # α = exp(sigmoid(LAG_conv(x))), identical to LAGConvGRU
+        alpha = torch.exp(torch.sigmoid(self.LAG_conv(input_)))  # α ∈ (1, e)
+        
+        # Power-based forget modulation: (1 - update)^α
+        # Clamp to avoid numerical issues with values close to 0 or 1
+        one_minus_z = torch.clamp(1.0 - update, min=1e-6, max=1.0)
+        forget_pow = torch.pow(one_minus_z, alpha)
+
+        # New update formula: H_t = (1 - Z_t)^α ⊙ H_{t-1} + Z_t ⊙ 	ilde{H}_t
+        new_state = forget_pow * prev_state + update * out_inp
+
+        return new_state
