@@ -1,2 +1,0 @@
-Line 15 - data_file: '../dataset/HQF/'
-Line 98 - save_dir: './checkpoints/quick_test_HQF'

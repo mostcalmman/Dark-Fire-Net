@@ -1,7 +1,0 @@
-=== __init__.py Files Created ===
-
-events_contrast_maximization/__init__.py: 0 bytes (empty)
-events_contrast_maximization/utils/__init__.py: 0 bytes (empty)
-events_contrast_maximization/tools/__init__.py: 0 bytes (empty)
-
-All __init__.py files created successfully.
