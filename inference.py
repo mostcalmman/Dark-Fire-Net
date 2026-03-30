@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from os.path import join
 import os
+import glob
 import cv2
 from tqdm import tqdm
 
@@ -66,7 +67,8 @@ def load_model(checkpoint):
     return model
 
 
-def main(args, model):
+def process_single_file(args, model, events_file_path, output_folder):
+    """Process a single H5 file and save results."""
     dataset_kwargs = {'transforms': {},
                       'max_length': None,
                       'sensor_resolution': None,
@@ -86,14 +88,21 @@ def main(args, model):
         print('Using legacy voxel normalization')
         dataset_kwargs['transforms'] = {'LegacyNorm': {}}
 
-    data_loader = InferenceDataLoader(args.events_file_path, dataset_kwargs=dataset_kwargs, ltype=args.loader_type)
+    data_loader = InferenceDataLoader(events_file_path, dataset_kwargs=dataset_kwargs, ltype=args.loader_type)
 
     height, width = get_height_width(data_loader)
 
     model_info['input_shape'] = height, width
     crop = CropParameters(width, height, model.num_encoders)
 
-    ts_fname = setup_output_folder(args.output_folder)
+    ts_fname = setup_output_folder(output_folder)
+    
+    # Create rec/ and gt/ subdirectories if saving GT
+    rec_dir = join(output_folder, 'rec')
+    gt_dir = join(output_folder, 'gt')
+    ensure_dir(rec_dir)
+    if args.save_gt:
+        ensure_dir(gt_dir)
     
     model.reset_states()
     for i, item in enumerate(tqdm(data_loader)):
@@ -102,6 +111,10 @@ def main(args, model):
             voxel = crop.pad(voxel)
         with CudaTimer('Inference'):
             output = model(voxel)
+        
+        # Generate filename based on frame index
+        fname = 'frame_{:010d}.png'.format(i)
+        
         # save sample images, or do something with output here
         if args.is_flow:
             flow_t = torch.squeeze(crop.crop(output['flow']))
@@ -112,23 +125,63 @@ def main(args, model):
                 flow = flow_t.cpu().numpy() / item['dt'].numpy()
             ts = item['timestamp'].cpu().numpy()
             flow_dict = flow
-            fname = 'flow_{:010d}.npy'.format(i)
-            np.save(os.path.join(args.output_folder, fname), flow_dict)
-            with open(os.path.join(args.output_folder, fname), "a") as myfile:
+            fname_npy = 'flow_{:010d}.npy'.format(i)
+            np.save(os.path.join(output_folder, fname_npy), flow_dict)
+            with open(os.path.join(output_folder, fname_npy), "a") as myfile:
                 myfile.write("\n")
                 myfile.write("timestamp: {:.10f}".format(ts[0]))
             flow_img = flow2bgr_np(flow[0, :, :], flow[1, :, :])
-            fname = 'flow_{:010d}.png'.format(i)
-            cv2.imwrite(os.path.join(args.output_folder, fname), flow_img)
+            fname_png = 'flow_{:010d}.png'.format(i)
+            cv2.imwrite(os.path.join(output_folder, fname_png), flow_img)
+            append_timestamp(ts_fname, fname_png, item['timestamp'].item())
         else:
             if args.color:
-                image = output['image']
+                rec_image = output['image']
             else:
-                image = crop.crop(output['image'])
-                image = torch2cv2(image)
-            fname = 'frame_{:010d}.png'.format(i)
-            cv2.imwrite(join(args.output_folder, fname), image)
-        append_timestamp(ts_fname, fname, item['timestamp'].item())
+                rec_image = crop.crop(output['image'])
+                rec_image = torch2cv2(rec_image)
+            
+            # Save reconstructed image to rec/
+            cv2.imwrite(join(rec_dir, fname), rec_image)
+            
+            # Save GT image to gt/ if requested
+            if args.save_gt and 'frame' in item:
+                gt_image = item['frame']
+                # Convert GT from tensor [1, H, W] in [0,1] to cv2 format [H, W] in [0,255]
+                gt_image = torch.squeeze(gt_image)  # H x W
+                gt_image = gt_image.cpu().numpy()
+                gt_image = np.clip(gt_image, 0, 1)
+                gt_image = (gt_image * 255).astype(np.uint8)
+                cv2.imwrite(join(gt_dir, fname), gt_image)
+            
+            append_timestamp(ts_fname, fname, item['timestamp'].item())
+
+
+def main(args, model):
+    """Main function that handles both single file and directory processing."""
+    # Check if events_file_path is a directory
+    if os.path.isdir(args.events_file_path):
+        print(f"Processing directory: {args.events_file_path}")
+        # Get all H5 files in the directory
+        h5_files = [f for f in os.listdir(args.events_file_path) if f.endswith('.h5') or f.endswith('.hdf5')]
+        h5_files.sort()
+        
+        if len(h5_files) == 0:
+            print(f"No H5 files found in directory: {args.events_file_path}")
+            return
+        
+        print(f"Found {len(h5_files)} H5 file(s) to process")
+        
+        for h5_file in h5_files:
+            h5_path = join(args.events_file_path, h5_file)
+            # Create subdirectory for each file in output folder
+            file_basename = os.path.splitext(h5_file)[0]
+            file_output_folder = join(args.output_folder, file_basename)
+            print(f"\nProcessing: {h5_file} -> {file_output_folder}")
+            process_single_file(args, model, h5_path, file_output_folder)
+    else:
+        # Single file processing
+        process_single_file(args, model, args.events_file_path, args.output_folder)
 
 
 if __name__ == '__main__':
@@ -169,6 +222,8 @@ if __name__ == '__main__':
                         help='set required parameters to run original e2vid as described in Rebecq20PAMI')
     parser.add_argument('--firenet_legacy', action='store_true', default=False,
                         help='set required parameters to run legacy firenet as described in Scheerlinck20WACV (not for retrained models using updated code)')
+    parser.add_argument('--save_gt', action='store_true', default=True,
+                        help='Save ground truth frames alongside reconstructed images. Creates rec/ and gt/ subdirectories.')
 
     args = parser.parse_args()
     
