@@ -48,12 +48,25 @@ def concatenate_datasets(data_file, dataset_type, dataset_kwargs={}):
         data_paths = df.values.flatten().tolist()
         flow_paths = [None] * len(data_paths)
     
+    # Check if dataset_type is a wrapper class like SequenceDataset
+    # that requires nested dataset_kwargs
+    dataset_type_name = dataset_type.__name__ if hasattr(dataset_type, '__name__') else str(dataset_type)
+    is_wrapper_dataset = 'SequenceDataset' in dataset_type_name
+    
     dataset_list = []
     print('Concatenating {} datasets'.format(dataset_type))
     for data_path, flow_path in tqdm(zip(data_paths, flow_paths), total=len(data_paths)):
         kwargs = dataset_kwargs.copy()
         if flow_path is not None and str(flow_path) != 'nan':
-            kwargs['external_flow_file'] = flow_path
+            if is_wrapper_dataset:
+                # For wrapper datasets like SequenceDataset, flow file should be in dataset_kwargs
+                # which gets passed to the underlying dataset
+                if 'dataset_kwargs' not in kwargs:
+                    kwargs['dataset_kwargs'] = {}
+                kwargs['dataset_kwargs']['external_flow_file'] = flow_path
+            else:
+                # For direct datasets like DynamicH5Dataset, pass flow file directly
+                kwargs['external_flow_file'] = flow_path
         dataset_list.append(dataset_type(data_path, **kwargs))
     return ConcatDataset(dataset_list)
 
