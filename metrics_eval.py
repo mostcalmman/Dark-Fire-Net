@@ -4,9 +4,14 @@ Calculates MSE, LPIPS, TC (Temporal Consistency), and SSIM between reconstructed
 
 Expected directory structure:
     results/
-    ├── rec/          # Reconstructed images (frame_*.png)
-    ├── gt/           # Ground truth images (frame_*.png)
-    └── flow/         # Optional: Flow files (flow_*.npy) for TC calculation
+    ├── scene1/
+    │   ├── rec/           # Reconstructed images (frame_*.png)
+    │   ├── gt/            # Ground truth images (frame_*.png)
+    ├── scene2/
+    │   ├── rec/
+    │   ├── gt/
+    ├── scene1_flow.npz      # Flow file for scene1 (optional, required for TC)
+    └── scene2_flow.npz
 """
 
 import argparse
@@ -44,15 +49,37 @@ def load_image(path: str) -> np.ndarray:
     return img.astype(np.float32) / 255.0
 
 
-def load_flow(path: str) -> Optional[np.ndarray]:
-    """Load flow from .npy file. Returns None if file doesn't exist."""
+def load_flow_from_npz(path: str, frame_idx: int) -> Optional[np.ndarray]:
+    """Load flow from .npz file for a specific frame index.
+    
+    Args:
+        path: Path to the .npz file containing flow data
+        frame_idx: Frame index to load flow for
+    
+    Returns:
+        Flow array of shape [2, H, W] or None if not found
+    """
     try:
-        flow = np.load(path, allow_pickle=True)
-        # Handle the case where flow was saved with timestamp appended
-        if isinstance(flow, np.ndarray) and flow.ndim == 0:
+        flow_data = np.load(path)
+        if 'x_flow_dist' not in flow_data or 'y_flow_dist' not in flow_data:
             return None
-        return flow
-    except:
+        
+        x_flow = flow_data['x_flow_dist']
+        y_flow = flow_data['y_flow_dist']
+        
+        # Handle different array shapes
+        # Expected: x_flow.shape = [N, H, W] where N is number of flow frames
+        if x_flow.ndim == 3:
+            if frame_idx < x_flow.shape[0]:
+                flow = np.stack([x_flow[frame_idx], y_flow[frame_idx]], axis=0)
+                return flow.astype(np.float32)
+        elif x_flow.ndim == 2:
+            # Single flow frame
+            flow = np.stack([x_flow, y_flow], axis=0)
+            return flow.astype(np.float32)
+        
+        return None
+    except Exception as e:
         return None
 
 
@@ -124,7 +151,7 @@ def calculate_tc_pair(
     # Calculate TC loss (i=1 for second frame, but we set i >= L0 manually)
     tc = temporal_consistency_loss(gt0_t, gt1_t, rec0_t, rec1_t, flow_t, alpha=50.0)
     
-    return float(tc.item())
+    return float(tc.item())  # type: ignore
 
 
 def get_image_pairs(rec_dir: str, gt_dir: str) -> List[Tuple[str, str]]:
@@ -153,9 +180,9 @@ def extract_frame_index(filename: str) -> int:
 def evaluate_directory(
     rec_dir: str, 
     gt_dir: str, 
-    flow_dir: Optional[str] = None,
+    flow_file: Optional[str] = None,
     calc_lpips: bool = True,
-    calc_tc: bool = True,
+    calc_tc: bool = False,
     save_error_maps: bool = False,
     error_map_dir: Optional[str] = None
 ) -> Dict[str, float]:
@@ -167,13 +194,13 @@ def evaluate_directory(
     """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # Initialize LPIPS model
-    if calc_lpips and LPIPS_AVAILABLE:
-        lpips_model = lpips.LPIPS(net='alex').to(device)
-        lpips_model.eval()
-    else:
-        lpips_model = None
-        if calc_lpips:
+    # Initialize LPIPS model (using VGG version)
+    lpips_model = None
+    if calc_lpips:
+        if LPIPS_AVAILABLE and 'lpips' in globals():
+            lpips_model = lpips.LPIPS(net='vgg').to(device)  # type: ignore
+            lpips_model.eval()
+        else:
             print("Warning: LPIPS not available, skipping LPIPS calculation")
     
     # Get image pairs
@@ -213,20 +240,16 @@ def evaluate_directory(
             lpips_vals.append(lpips_val)
         
         # TC (requires consecutive frames and flow)
-        if calc_tc and flow_dir is not None:
+        if calc_tc and flow_file is not None and os.path.exists(flow_file):
             current_idx = extract_frame_index(os.path.basename(rec_path))
             
             # Check if this is consecutive to previous
             if prev_rec is not None and current_idx == prev_idx + 1:
-                # Try to load flow
-                flow_filename = f"flow_{current_idx:010d}.npy"
-                flow_path = join(flow_dir, flow_filename)
-                
-                if os.path.exists(flow_path):
-                    flow = load_flow(flow_path)
-                    if flow is not None:
-                        tc = calculate_tc_pair(prev_rec, rec_img, prev_gt, gt_img, flow)
-                        tcs.append(tc)
+                # Load flow from npz file for this frame
+                flow = load_flow_from_npz(flow_file, current_idx)
+                if flow is not None and prev_gt is not None:
+                    tc = calculate_tc_pair(prev_rec, rec_img, prev_gt, gt_img, flow)
+                    tcs.append(tc)
             
             prev_rec = rec_img
             prev_gt = gt_img
@@ -260,12 +283,14 @@ def evaluate_directory(
 def evaluate_batch(
     root_dir: str,
     calc_lpips: bool = True,
-    calc_tc: bool = True,
+    calc_tc: bool = False,
     save_error_maps: bool = False
 ) -> Dict[str, Dict[str, float]]:
     """
     Evaluate metrics for all subdirectories in root_dir.
     Each subdirectory should have rec/ and gt/ folders.
+    
+    If calc_tc is True, looks for {scene_name}_flow.npz in the parent directory of root_dir.
     
     Returns:
         Dictionary mapping scene name to metrics
@@ -281,12 +306,22 @@ def evaluate_batch(
         else:
             error_map_dir = None
         
-        flow_dir = join(root_dir, 'flow') if os.path.isdir(join(root_dir, 'flow')) else None
+        # Determine flow file path: {root_dir}_flow.npz in parent directory
+        flow_file = None
+        if calc_tc:
+            root_dir_name = os.path.basename(os.path.normpath(root_dir))
+            parent_dir = os.path.dirname(os.path.normpath(root_dir))
+            flow_file = join(parent_dir, f"{root_dir_name}_flow.npz")
+            if os.path.exists(flow_file):
+                print(f"Using flow file: {flow_file}")
+            else:
+                print(f"Warning: Flow file not found: {flow_file}")
+                flow_file = None
         
         results = evaluate_directory(
             join(root_dir, 'rec'),
             join(root_dir, 'gt'),
-            flow_dir=flow_dir,
+            flow_file=flow_file,
             calc_lpips=calc_lpips,
             calc_tc=calc_tc,
             save_error_maps=save_error_maps,
@@ -317,13 +352,22 @@ def evaluate_batch(
             else:
                 error_map_dir = None
             
-            flow_dir = join(scene_path, 'flow') if os.path.isdir(join(scene_path, 'flow')) else None
+            # Determine flow file path: {scene}_flow.npz in parent directory of root_dir
+            flow_file = None
+            if calc_tc:
+                parent_dir = os.path.dirname(os.path.normpath(root_dir))
+                flow_file = join(parent_dir, f"{scene}_flow.npz")
+                if os.path.exists(flow_file):
+                    print(f"Using flow file: {flow_file}")
+                else:
+                    print(f"Warning: Flow file not found: {flow_file}")
+                    flow_file = None
             
             try:
                 results = evaluate_directory(
                     rec_dir,
                     gt_dir,
-                    flow_dir=flow_dir,
+                    flow_file=flow_file,
                     calc_lpips=calc_lpips,
                     calc_tc=calc_tc,
                     save_error_maps=save_error_maps,
@@ -421,8 +465,9 @@ def main():
                         help='Output file to save results')
     parser.add_argument('--no_lpips', action='store_true',
                         help='Skip LPIPS calculation')
-    parser.add_argument('--no_tc', action='store_true',
-                        help='Skip Temporal Consistency calculation')
+    parser.add_argument('--use_tc', action='store_true',
+                        help='Enable Temporal Consistency (TC) calculation. '
+                             'Looks for {scene_name}_flow.npz in the parent directory of input_dir.')
     parser.add_argument('--save_error_maps', action='store_true',
                         help='Save error visualization maps')
     parser.add_argument('--device', default='0', type=str,
@@ -437,7 +482,7 @@ def main():
     print(f"Input directory: {args.input_dir}")
     print(f"Output file: {args.output_file}")
     print(f"Calculate LPIPS: {not args.no_lpips}")
-    print(f"Calculate TC: {not args.no_tc}")
+    print(f"Calculate TC: {args.use_tc}")
     print(f"Save error maps: {args.save_error_maps}")
     print()
     
@@ -445,7 +490,7 @@ def main():
     results = evaluate_batch(
         args.input_dir,
         calc_lpips=not args.no_lpips,
-        calc_tc=not args.no_tc,
+        calc_tc=args.use_tc,
         save_error_maps=args.save_error_maps
     )
     
@@ -470,5 +515,5 @@ if __name__ == '__main__':
 # With error maps:
 #   python metrics_eval.py --input_dir results/ --output_file results/metrics.txt --save_error_maps
 #
-# Skip TC (if no flow available):
-#   python metrics_eval.py --input_dir results/ --output_file results/metrics.txt --no_tc
+# Enable TC calculation (requires {scene_name}_flow.npz in parent directory):
+#   python metrics_eval.py --input_dir results/ --output_file results/metrics.txt --use_tc
