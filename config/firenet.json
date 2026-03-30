@@ -1,8 +1,8 @@
 {
-    "name": "dark_firenet_reconstruction",
+    "name": "firenet_reconstruction",
     "n_gpu": 1,
     "arch": {
-        "type": "DarkFireNet",
+        "type": "FireNet",
         "args": {
             "num_bins": 5,
             "base_num_channels": 16,
