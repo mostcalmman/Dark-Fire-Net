@@ -31,15 +31,30 @@ def concatenate_datasets(data_file, dataset_type, dataset_kwargs={}):
     Generates a dataset for each data_path specified in data_file and concatenates the datasets.
     :param data_file: A file containing a list of paths to CTI h5 files.
                       Each file is expected to have a sequence of frame_{:09d}
+                      Can also have two columns: h5_path,flow_path (optional)
     :param dataset_type: Pointer to dataset class
     :param sequence_length: Desired length of each sequence
     :return ConcatDataset: concatenated dataset of all data_paths in data_file
     """
-    data_paths = pd.read_csv(data_file, header=None).values.flatten().tolist()
+    df = pd.read_csv(data_file, header=None)
+    
+    # Check if file has two columns (h5_path, flow_path)
+    if df.shape[1] >= 2:
+        # Two column format: h5_path,flow_path
+        data_paths = df.iloc[:, 0].values.tolist()
+        flow_paths = df.iloc[:, 1].values.tolist()
+    else:
+        # Single column format: just h5 paths
+        data_paths = df.values.flatten().tolist()
+        flow_paths = [None] * len(data_paths)
+    
     dataset_list = []
     print('Concatenating {} datasets'.format(dataset_type))
-    for data_path in tqdm(data_paths):
-        dataset_list.append(dataset_type(data_path, **dataset_kwargs))
+    for data_path, flow_path in tqdm(zip(data_paths, flow_paths), total=len(data_paths)):
+        kwargs = dataset_kwargs.copy()
+        if flow_path is not None and str(flow_path) != 'nan':
+            kwargs['external_flow_file'] = flow_path
+        dataset_list.append(dataset_type(data_path, **kwargs))
     return ConcatDataset(dataset_list)
 
 def concatenate_memmap_datasets(data_file, dataset_type, dataset_kwargs):

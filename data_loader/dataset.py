@@ -369,13 +369,59 @@ class DynamicH5Dataset(BaseVoxelDataset):
     """
     Dataloader for events saved in the Monash University HDF5 events format
     (see https://github.com/TimoStoff/event_utils for code to convert datasets)
+    
+    Supports loading optic flow from external npz file with format:
+    - timestamps: [N] array of timestamps
+    - x_flow_dist: [N, H, W] or [H, W, N] array of x-direction flow
+    - y_flow_dist: [N, H, W] or [H, W, N] array of y-direction flow
     """
+
+    def __init__(self, data_path, transforms={}, sensor_resolution=None, num_bins=5,
+                 voxel_method=None, max_length=None, combined_voxel_channels=True,
+                 filter_hot_events=False, external_flow_file=None, auto_find_flow=False):
+        """
+        Args:
+            external_flow_file: Path to external npz file containing optic flow data.
+                               If provided, will use this instead of H5 internal flow.
+            auto_find_flow: If True, automatically look for a corresponding npz flow file.
+                           The flow file is expected to be named {h5_name}_flow.npz
+                           or flow.npz in the same directory as the h5 file.
+        """
+        self.external_flow_file = external_flow_file
+        self.auto_find_flow = auto_find_flow
+        self.flow_timestamps = None
+        self.flow_data = None
+        self.flow_index_map = None
+        super().__init__(data_path, transforms, sensor_resolution, num_bins,
+                        voxel_method, max_length, combined_voxel_channels, filter_hot_events)
 
     def get_frame(self, index):
         return self.h5_file['images']['image{:09d}'.format(index)][:]
 
     def get_flow(self, index):
-        return self.h5_file['flow']['flow{:09d}'.format(index)][:]
+        if self.flow_data is not None:
+            # Get flow from external npz file using timestamp alignment
+            frame_ts = self.frame_ts[index]
+            flow_idx = self._get_flow_index(frame_ts)
+            return self.flow_data[flow_idx]
+        else:
+            # Get flow from H5 file
+            return self.h5_file['flow']['flow{:09d}'.format(index)][:]
+    
+    def _get_flow_index(self, timestamp):
+        """Find the closest flow frame index for a given timestamp."""
+        if self.flow_index_map is not None:
+            return self.flow_index_map.get(timestamp, 0)
+        # Binary search for closest timestamp
+        idx = np.searchsorted(self.flow_timestamps, timestamp)
+        if idx == 0:
+            return 0
+        if idx == len(self.flow_timestamps):
+            return len(self.flow_timestamps) - 1
+        # Return closest index
+        if abs(self.flow_timestamps[idx] - timestamp) < abs(self.flow_timestamps[idx-1] - timestamp):
+            return idx
+        return idx - 1
 
     def get_events(self, idx0, idx1):
         xs = self.h5_file['events/xs'][idx0:idx1]
@@ -405,11 +451,74 @@ class DynamicH5Dataset(BaseVoxelDataset):
         for img_name in self.h5_file['images']:
             self.frame_ts.append(self.h5_file['images/{}'.format(img_name)].attrs['timestamp'])
 
+        # Load external flow file if provided or auto-detect
+        flow_file_to_load = None
+        if self.external_flow_file is not None:
+            flow_file_to_load = self.external_flow_file
+        elif self.auto_find_flow:
+            # Auto-detect flow file based on naming convention
+            h5_dir = os.path.dirname(data_path)
+            h5_name = os.path.splitext(os.path.basename(data_path))[0]
+            # Try multiple naming patterns
+            possible_flow_files = [
+                os.path.join(h5_dir, f"{h5_name}_flow.npz"),
+                os.path.join(h5_dir, "flow.npz"),
+                os.path.join(h5_dir, f"{h5_name}_optic_flow.npz"),
+                os.path.join(h5_dir, "optic_flow.npz"),
+            ]
+            for flow_file in possible_flow_files:
+                if os.path.exists(flow_file):
+                    flow_file_to_load = flow_file
+                    break
+        
+        if flow_file_to_load is not None and os.path.exists(flow_file_to_load):
+            try:
+                self._load_external_flow(flow_file_to_load)
+                self.has_flow = True
+                print(f"Loaded external flow from {flow_file_to_load}")
+            except Exception as e:
+                print(f"Warning: Failed to load external flow file {flow_file_to_load}: {e}")
+                self.flow_data = None
+
         data_source = self.h5_file.attrs.get('source', 'unknown')
         try:
             self.data_source_idx = data_sources.index(data_source)
         except ValueError:
             self.data_source_idx = -1
+
+    def _load_external_flow(self, flow_file):
+        """Load optic flow from external npz file.
+        
+        Expected format:
+        - timestamps: [N] array of timestamps
+        - x_flow_dist: [N, H, W] or [H, W, N] array of x-direction flow
+        - y_flow_dist: [N, H, W] or [H, W, N] array of y-direction flow
+        """
+        flow_data = np.load(flow_file)
+        
+        self.flow_timestamps = flow_data['timestamps']
+        x_flow = flow_data['x_flow_dist']
+        y_flow = flow_data['y_flow_dist']
+        
+        # Check shape and transpose if needed
+        # Expected shape: [N, H, W] where N is number of flow frames
+        if x_flow.shape[0] != len(self.flow_timestamps):
+            # Try transposing from [H, W, N] to [N, H, W]
+            if x_flow.shape[-1] == len(self.flow_timestamps):
+                x_flow = np.transpose(x_flow, (2, 0, 1))
+                y_flow = np.transpose(y_flow, (2, 0, 1))
+            else:
+                raise ValueError(f"Flow shape {x_flow.shape} doesn't match timestamps length {len(self.flow_timestamps)}")
+        
+        # Stack x and y flow to create [N, 2, H, W] array
+        self.flow_data = np.stack([x_flow, y_flow], axis=1).astype(np.float32)
+        
+        # Create timestamp to index mapping for fast lookup
+        self.flow_index_map = {}
+        for i, ts in enumerate(self.flow_timestamps):
+            self.flow_index_map[ts] = i
+        
+        print(f"Loaded {len(self.flow_timestamps)} flow frames with shape {self.flow_data.shape}")
 
     def find_ts_index(self, timestamp):
         idx = binary_search_h5_dset(self.h5_file['events/ts'], timestamp)
