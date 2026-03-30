@@ -175,7 +175,9 @@ if __name__ == '__main__':
     if args.device is not None:
         os.environ['CUDA_VISIBLE_DEVICES'] = args.device
     print('Loading checkpoint: {} ...'.format(args.checkpoint_path))
-    checkpoint = torch.load(args.checkpoint_path)
+    checkpoint = torch.load(args.checkpoint_path, weights_only=False)
     args, checkpoint = legacy_compatibility(args, checkpoint)
     model = load_model(checkpoint)
     main(args, model)
+
+# python inference.py --checkpoint_path checkpoints/HQF/models/dark_firenet_lag_reconstruction/0330_144011/model_best.pth --events_file_path datasets/MVSEC_night/ --output_folder results/MVSEC_night/LAG

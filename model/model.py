@@ -1,5 +1,6 @@
 import numpy as np
 import copy
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 # local modules
@@ -279,9 +280,13 @@ class FireNet(BaseModel):
         x = self.G2(x, self._states[1])
         self._states[1] = x
         x = self.R2(x)
-        return {'image': self.pred(x)}
+        # return {'image': self.pred(x)}
+        # FireNet 不 sigmoid 输出会变黑, 但是加了 LAG 似乎不需要
+        # 这里存在不一致, 但结果应该没区别( 因为都会 clamp 到 [0,1] ), 后面可以统一了再训练一下
+        return {'image': torch.sigmoid(self.pred(x))}
 
 
+# 下面三个和FireNet结构完全一样，只是GRU模块不一样
 class DarkFireNet(BaseModel):
     """
     Low-light optimized version of FireNet.
@@ -391,7 +396,8 @@ class DarkFireNet_LAG(BaseModel):
         x = self.G2(x, self._states[1])
         self._states[1] = x
         x = self.R2(x)
-        return {'image': self.pred(x)}
+        # return {'image': self.pred(x)}
+        return {'image': torch.sigmoid(self.pred(x))}
 
 
 class DarkFireNet_PowerLAG(BaseModel):
