@@ -13,7 +13,7 @@
         "type": "HDF5DataLoader",
         "args": {
             "data_file": "./datasets/MVSEC_night/train_list.txt",
-            "batch_size": 12,
+            "batch_size": 4,
             "shuffle": true,
             "num_workers": 12,
             "pin_memory": true,
@@ -47,7 +47,7 @@
         "type": "HDF5DataLoader",
         "args": {
             "data_file": "./datasets/MVSEC_night/val_list.txt",
-            "batch_size": 12,
+            "batch_size": 4,
             "shuffle": false,
             "num_workers": 12,
             "pin_memory": true,
@@ -101,6 +101,6 @@
         "monitor": "min loss",
         "num_previews": 4,
         "val_num_previews": 8,
-        "tensorboard": false
+        "tensorboard": true
     }
 }

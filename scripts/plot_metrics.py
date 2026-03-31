@@ -9,6 +9,13 @@ import matplotlib.pyplot as plt
 
 
 METRICS = ["loss", "raw_ssim", "raw_mse", "raw_lpips", "raw_tc"]
+SUMMARY_METRICS = [
+	("Overall Loss", "loss"),
+	("    LPIPS   ", "raw_lpips"),
+	("    SSIM    ", "raw_ssim"),
+	("     MSE    ", "raw_mse"),
+	("     TC     ", "raw_tc"),
+]
 VAL_KEY_MAP = {
 	"val_loss": "loss",
 	"val_raw_ssim": "raw_ssim",
@@ -148,6 +155,46 @@ def plot_all_metrics(train_records, val_records, out_dir: Path):
 	return out_file
 
 
+def _format_table_value(value):
+	if value is None:
+		return "N/A"
+	return f"{value:.4f}"
+
+
+def _render_markdown_table(title, epoch, record):
+	lines = [
+		f"{title} (Epoch {epoch})",
+		"|-----------------------|",
+	]
+
+	for metric_name, metric_key in SUMMARY_METRICS:
+		value = _format_table_value(record.get(metric_key))
+		lines.append(f"| {metric_name} | {value} |")
+
+	return "\n".join(lines)
+
+
+def write_last_epoch_summary(train_records, val_records, out_dir: Path):
+	all_epochs = sorted(set(train_records.keys()) | set(val_records.keys()))
+	if not all_epochs:
+		return None
+
+	last_epoch = all_epochs[-1]
+	train_record = train_records.get(last_epoch, {})
+	val_record = val_records.get(last_epoch, {})
+
+	content = "\n\n".join(
+		[
+			_render_markdown_table("Train", last_epoch, train_record),
+			_render_markdown_table("Validation", last_epoch, val_record),
+		]
+	)
+
+	out_file = out_dir / "last_epoch_metrics.txt"
+	out_file.write_text(content + "\n", encoding="utf-8")
+	return out_file
+
+
 def main():
 	parser = argparse.ArgumentParser(
 		description="Visualize train/val metrics from trainer log by epoch."
@@ -176,12 +223,17 @@ def main():
 
 	train_records, val_records = parse_log(args.log)
 	out_file = plot_all_metrics(train_records, val_records, args.outdir)
+	summary_file = write_last_epoch_summary(train_records, val_records, args.outdir)
 
 	if out_file is None:
 		raise RuntimeError("No target metrics were found in log.")
+	if summary_file is None:
+		raise RuntimeError("No epoch records were found in log.")
 
 	print("Generated figure:")
 	print(out_file)
+	print("Generated summary:")
+	print(summary_file)
 
 
 if __name__ == "__main__":

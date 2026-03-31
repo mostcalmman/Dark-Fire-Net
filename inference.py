@@ -235,4 +235,4 @@ if __name__ == '__main__':
     model = load_model(checkpoint)
     main(args, model)
 
-# python inference.py --checkpoint_path checkpoints/HQF/models/dark_firenet_lag_reconstruction/0330_144011/model_best.pth --events_file_path datasets/MVSEC_night/ --output_folder results/MVSEC_night/LAG
+# python inference.py --checkpoint_path path/to/pth --events_file_path datasets/MVSEC_night/ --output_folder results/MVSEC_night/LAG
