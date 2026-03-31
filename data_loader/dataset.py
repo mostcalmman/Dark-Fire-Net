@@ -501,15 +501,28 @@ class DynamicH5Dataset(BaseVoxelDataset):
         """Load optic flow from external npz file.
         
         Expected format:
-        - timestamps: [N] array of timestamps
-        - x_flow_dist: [N, H, W] or [H, W, N] array of x-direction flow
-        - y_flow_dist: [N, H, W] or [H, W, N] array of y-direction flow
+        - timestamps/ts: [N] array of timestamps
+        - x_flow_dist/x_flow_tensor: [N, H, W] or [H, W, N] array of x-direction flow
+        - y_flow_dist/y_flow_tensor: [N, H, W] or [H, W, N] array of y-direction flow
         """
         flow_data = np.load(flow_file)
         
-        self.flow_timestamps = flow_data['timestamps']
-        x_flow = flow_data['x_flow_dist']
-        y_flow = flow_data['y_flow_dist']
+        # Support multiple naming conventions
+        if 'timestamps' in flow_data:
+            self.flow_timestamps = flow_data['timestamps']
+        elif 'ts' in flow_data:
+            self.flow_timestamps = flow_data['ts']
+        else:
+            raise KeyError(f"No timestamp field found. Available keys: {list(flow_data.keys())}")
+        
+        if 'x_flow_dist' in flow_data:
+            x_flow = flow_data['x_flow_dist']
+            y_flow = flow_data['y_flow_dist']
+        elif 'x_flow_tensor' in flow_data:
+            x_flow = flow_data['x_flow_tensor']
+            y_flow = flow_data['y_flow_tensor']
+        else:
+            raise KeyError(f"No flow field found. Available keys: {list(flow_data.keys())}")
         
         # Check shape and transpose if needed
         # Expected shape: [N, H, W] where N is number of flow frames
