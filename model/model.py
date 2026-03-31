@@ -9,7 +9,7 @@ from .model_util import CropParameters, recursive_clone
 from .base.base_model import BaseModel
 
 from .unet import UNetFlow, WNet, UNetFlowNoRecur, UNetRecurrent, UNet
-from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU, LAGConvGRU, PowerLAGConvGRU
+from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU, LAGConvGRU, NewLAGConvGRU
 from utils.color_utils import merge_channels_into_color_image
 
 from .legacy import FireNet_legacy
@@ -289,16 +289,7 @@ class FireNet(BaseModel):
 # 下面三个和FireNet结构完全一样，只是GRU模块不一样
 class DarkFireNet(BaseModel):
     """
-    Low-light optimized version of FireNet.
-    Replaces standard ConvGRU with LightAwareConvGRU, which modulates the update gate
-    based on event density (proxy for illumination). In dark scenes (low event density),
-    the update gate is suppressed, causing the model to retain more temporal memory
-    and reduce smearing artifacts.
-
-    Additionally uses SE (Squeeze-Excitation) channel attention on GRU hidden states
-    to adaptively weight feature channels.
-
-    Architecture: head -> LightAwareGRU1 -> Res1 -> LightAwareGRU2 -> Res2 -> pred
+    这个模型目前是不可用的, 作为最终版本预留位置
     """
     def __init__(self, num_bins=5, base_num_channels=16, kernel_size=3, unet_kwargs={}):
         super().__init__()
@@ -400,23 +391,20 @@ class DarkFireNet_LAG(BaseModel):
         return {'image': torch.sigmoid(self.pred(x))}
 
 
-class DarkFireNet_PowerLAG(BaseModel):
+class DarkFireNet_NewLAG(BaseModel):
     """
-    Low-light optimized FireNet using Power-based LAG (Local Adaptation Gate).
-    
-    Uses a novel update formula with learnable α from input features:
-      α = exp(σ(LAG_conv(x)))       # α ∈ (1, e), identical to LAGConvGRU
-      H_t = (1 - Z_t)^α ⊙ H_{t-1} + Z_t ⊙ \tilde{H}_t
-    
-    Key difference from DarkFireNet_LAG:
-    - DarkFireNet_LAG: forget_new = σ((1-z) - α·z)   # sigmoid coupling
-    - DarkFireNet_PowerLAG: forget_pow = (1-z)^α     # power-based modulation
-    
-    Effect: 
-    - Large α (bright scenes) → (1-z)^α smaller → less memory, more update
-    - Small α (dark scenes) → (1-z)^α larger → more memory, less update
-    
-    Architecture: head -> PowerLAG_GRU1 -> Res1 -> PowerLAG_GRU2 -> Res2 -> pred
+    第一版方案无法保证凸组合, 对遗忘调控有问题(个人怀疑是不能正确遗忘), 导致异常亮斑
+    α在(0,2)之间, 起始点为1就是原版FireNet
+    3*3 conv 捕获局部光照分布, 1 通道 α 广播 → 空间自适应
+    每个 GRU 仅增加 1*1*3*3 + 1 = 10 参数, 更轻量
+    H -> Channel_Pooling -> light_feature -> Conv2d(1,1) + sigmoid + *2 -> α∈(0,2)
+    α = 1 → standard GRU (identity, safe for normal scenes)
+    α < 1 → suppress update → more memory retention (dark regions)
+    α > 1 → boost update → faster adaptation (bright regions)
+
+    z_eff = clamp(α · z, 0, 1)
+    h_new = (1 - z_eff) · h_prev + z_eff · candidate
+    (1 - z_eff) + z_eff ≡ 1
     """
     def __init__(self, num_bins=5, base_num_channels=16, kernel_size=3, unet_kwargs={}):
         super().__init__()
@@ -427,9 +415,9 @@ class DarkFireNet_PowerLAG(BaseModel):
         self.num_bins = num_bins
         padding = kernel_size // 2
         self.head = ConvLayer(self.num_bins, base_num_channels, kernel_size, padding=padding)
-        self.G1   = PowerLAGConvGRU(base_num_channels, base_num_channels, kernel_size)
+        self.G1   = NewLAGConvGRU(base_num_channels, base_num_channels, kernel_size)
         self.R1   = ResidualBlock(base_num_channels, base_num_channels)
-        self.G2   = PowerLAGConvGRU(base_num_channels, base_num_channels, kernel_size)
+        self.G2   = NewLAGConvGRU(base_num_channels, base_num_channels, kernel_size)
         self.R2   = ResidualBlock(base_num_channels, base_num_channels)
         self.pred = ConvLayer(base_num_channels, out_channels=1, kernel_size=1, activation=None)
         self.num_encoders = 0
@@ -459,4 +447,5 @@ class DarkFireNet_PowerLAG(BaseModel):
         x = self.G2(x, self._states[1])
         self._states[1] = x
         x = self.R2(x)
-        return {'image': self.pred(x)}
+        # return {'image': self.pred(x)}
+        return {'image': torch.sigmoid(self.pred(x))}
