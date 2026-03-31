@@ -12,10 +12,10 @@
     "data_loader": {
         "type": "HDF5DataLoader",
         "args": {
-            "data_file": "./datasets/HQF/train_list.txt",
+            "data_file": "./datasets/MVSEC_night/train_list.txt",
             "batch_size": 12,
             "shuffle": true,
-            "num_workers": 16,
+            "num_workers": 12,
             "pin_memory": true,
             "sequence_kwargs": {
                 "sequence_length": 40,
@@ -46,10 +46,10 @@
     "valid_data_loader": {
         "type": "HDF5DataLoader",
         "args": {
-            "data_file": "./datasets/HQF/val_list.txt",
+            "data_file": "./datasets/MVSEC_night/val_list.txt",
             "batch_size": 12,
             "shuffle": false,
-            "num_workers": 16,
+            "num_workers": 12,
             "pin_memory": true,
             "sequence_kwargs": {
                 "sequence_length": 320,
@@ -95,7 +95,7 @@
     },
     "trainer": {
         "epochs": 200,
-        "save_dir": "./checkpoints/HQF",
+        "save_dir": "./checkpoints/MVSEC_night",
         "save_period": 5,
         "verbosity": 2,
         "monitor": "min loss",
