@@ -441,7 +441,14 @@ class DynamicH5Dataset(BaseVoxelDataset):
         else:
             self.sensor_resolution = self.sensor_resolution[0:2]
         print("sensor resolution = {}".format(self.sensor_resolution))
+        
+        # Check internal H5 flow availability
         self.has_flow = 'flow' in self.h5_file.keys() and len(self.h5_file['flow']) > 0
+        if self.has_flow:
+            print(f"[FLOW] Internal H5 flow detected: {len(self.h5_file['flow'])} flow frames")
+        else:
+            print(f"[FLOW] No internal H5 flow found")
+        
         self.t0 = self.h5_file['events/ts'][0]
         self.tk = self.h5_file['events/ts'][-1]
         self.num_events = self.h5_file.attrs["num_events"]
@@ -475,10 +482,14 @@ class DynamicH5Dataset(BaseVoxelDataset):
             try:
                 self._load_external_flow(flow_file_to_load)
                 self.has_flow = True
-                print(f"Loaded external flow from {flow_file_to_load}")
+                print(f"[FLOW] Successfully loaded external flow from: {flow_file_to_load}")
+                print(f"[FLOW] Flow data shape: {self.flow_data.shape}, timestamps: {len(self.flow_timestamps)}")
             except Exception as e:
-                print(f"Warning: Failed to load external flow file {flow_file_to_load}: {e}")
+                print(f"[FLOW] Warning: Failed to load external flow file {flow_file_to_load}: {e}")
                 self.flow_data = None
+        else:
+            if self.external_flow_file or self.auto_find_flow:
+                print(f"[FLOW] External flow file not found. Falling back to internal H5 flow or zero flow.")
 
         data_source = self.h5_file.attrs.get('source', 'unknown')
         try:

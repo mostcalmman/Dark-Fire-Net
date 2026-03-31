@@ -34,7 +34,7 @@
                 "dataset_kwargs": {
                     "transforms": {
                         "RandomCrop": {
-                            "size": 112
+                            "size": 160
                         },
                         "RandomFlip": {}
                     },
@@ -52,11 +52,11 @@
             "num_workers": 12,
             "pin_memory": true,
             "sequence_kwargs": {
-                "sequence_length": 320,
+                "sequence_length": 40,
                 "dataset_type": "DynamicH5Dataset",
                 "normalize_image": true,
                 "dataset_kwargs": {
-                    "max_length": 320,
+                    "max_length": 40,
                     "transforms": {
                         "CenterCrop": {
                             "size": 160
@@ -101,6 +101,6 @@
         "monitor": "min loss",
         "num_previews": 4,
         "val_num_previews": 8,
-        "tensorboard": true
+        "tensorboard": false
     }
 }
