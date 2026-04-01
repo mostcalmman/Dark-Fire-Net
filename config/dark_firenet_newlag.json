@@ -1,8 +1,8 @@
 {
-    "name": "dark_firenet_newlag_reconstruction",
+    "name": "dark_firenet_newlag2_reconstruction",
     "n_gpu": 1,
     "arch": {
-        "type": "DarkFireNet_NewLAG",
+        "type": "DarkFireNet_NewLAG2",
         "args": {
             "num_bins": 5,
             "base_num_channels": 16,

@@ -9,7 +9,7 @@ from .model_util import CropParameters, recursive_clone
 from .base.base_model import BaseModel
 
 from .unet import UNetFlow, WNet, UNetFlowNoRecur, UNetRecurrent, UNet
-from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU, LAGConvGRU, NewLAGConvGRU
+from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU, LAGConvGRU, NewLAGConvGRU, NewLAGConvGRU2
 from utils.color_utils import merge_channels_into_color_image
 
 from .legacy import FireNet_legacy
@@ -415,6 +415,55 @@ class DarkFireNet_NewLAG(BaseModel):
         self.G1   = NewLAGConvGRU(base_num_channels, base_num_channels, kernel_size)
         self.R1   = ResidualBlock(base_num_channels, base_num_channels)
         self.G2   = NewLAGConvGRU(base_num_channels, base_num_channels, kernel_size)
+        self.R2   = ResidualBlock(base_num_channels, base_num_channels)
+        self.pred = ConvLayer(base_num_channels, out_channels=1, kernel_size=1, activation=None)
+        self.num_encoders = 0
+        self.num_recurrent_units = 2
+        self.reset_states()
+
+    @property
+    def states(self):
+        return copy_states(self._states)
+
+    @states.setter
+    def states(self, states):
+        self._states = states
+
+    def reset_states(self):
+        self._states = [None] * self.num_recurrent_units
+
+    def forward(self, x):
+        """
+        :param x: N x num_bins x H x W event voxel tensor
+        :return: dict with 'image': N x 1 x H x W reconstructed frame
+        """
+        x = self.head(x)
+        x = self.G1(x, self._states[0])
+        self._states[0] = x
+        x = self.R1(x)
+        x = self.G2(x, self._states[1])
+        self._states[1] = x
+        x = self.R2(x)
+        # return {'image': self.pred(x)}
+        return {'image': torch.sigmoid(self.pred(x))}
+
+
+class DarkFireNet_NewLAG2(BaseModel):
+    """
+    只换了ConvGRU
+    """
+    def __init__(self, num_bins=5, base_num_channels=16, kernel_size=3, unet_kwargs={}):
+        super().__init__()
+        if unet_kwargs:
+            num_bins = unet_kwargs.get('num_bins', num_bins)
+            base_num_channels = unet_kwargs.get('base_num_channels', base_num_channels)
+            kernel_size = unet_kwargs.get('kernel_size', kernel_size)
+        self.num_bins = num_bins
+        padding = kernel_size // 2
+        self.head = ConvLayer(self.num_bins, base_num_channels, kernel_size, padding=padding)
+        self.G1   = NewLAGConvGRU2(base_num_channels, base_num_channels, kernel_size) # change
+        self.R1   = ResidualBlock(base_num_channels, base_num_channels)
+        self.G2   = NewLAGConvGRU2(base_num_channels, base_num_channels, kernel_size) #change
         self.R2   = ResidualBlock(base_num_channels, base_num_channels)
         self.pred = ConvLayer(base_num_channels, out_channels=1, kernel_size=1, activation=None)
         self.num_encoders = 0
