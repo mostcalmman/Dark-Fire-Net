@@ -337,14 +337,11 @@ class DarkFireNet(BaseModel):
 
 class DarkFireNet_LAG(BaseModel):
     """
-    Low-light optimized FireNet using LAG (Local Adaptation Gate).
-    Faithfully adapted from ref/submodules.py LSTM-based LAG to GRU.
-
     LAG couples the update/forget gates via a learned α from input features:
       α = exp(σ(LAG_conv(x)))       # α ∈ (1, e)
       forget_new = σ((1-z) - α·z)   # bright → more update; dark → more memory
 
-    Architecture: head -> LAG_GRU1 -> Res1 -> LAG_GRU2 -> Res2 -> pred
+    LAG初版, 对光照遗忘机制有问题, 会导致严重的异常光斑, 已弃用, 作为对比项保留
     """
     def __init__(self, num_bins=5, base_num_channels=16, kernel_size=3, unet_kwargs={}):
         super().__init__()

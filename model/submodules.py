@@ -373,9 +373,6 @@ class LightAwareConvGRU(nn.Module):
 
 class LAGConvGRU(nn.Module):
     """
-    GRU with Local Adaptation Gate (LAG), faithfully adapted from the LSTM-based
-    LAG in ref/submodules.py (NAM_Complete_add, NAM_withoutGCB, etc.).
-
     Original LAG (LSTM, ref/submodules.py):
         i_t = σ(...)                          # input gate
         f_t = σ(...)                          # forget gate
@@ -396,8 +393,6 @@ class LAGConvGRU(nn.Module):
 
         Effect: bright scene → large z (update) → α·z large → forget drops → more new info
                 dark scene  → small z (update) → α·z small → forget stays high → preserve memory
-
-    Interface identical to ConvGRU: forward(input_, prev_state) -> new_state tensor.
     """
 
     def __init__(self, input_size, hidden_size, kernel_size):
