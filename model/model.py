@@ -9,7 +9,7 @@ from .model_util import CropParameters, recursive_clone
 from .base.base_model import BaseModel
 
 from .unet import UNetFlow, WNet, UNetFlowNoRecur, UNetRecurrent, UNet
-from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU, LAGConvGRU, NewLAGConvGRU, NewLAGConvGRU2
+from .submodules import ResidualBlock, ConvGRU, ConvLayer, LightAwareConvGRU, LAGConvGRU, NewLAGConvGRU, NewLAGConvGRU2, NewLAGConvGRU3
 from utils.color_utils import merge_channels_into_color_image
 
 from .legacy import FireNet_legacy
@@ -448,9 +448,9 @@ class DarkFireNet_NewLAG(BaseModel):
         return {'image': torch.sigmoid(self.pred(x))}
 
 
-class DarkFireNet_NewLAG2(BaseModel):
+class DarkFireNet_NewLAG3(BaseModel):
     """
-    只换了ConvGRU
+    这个是DarkFireNet_NewLAG{N}, 区别只在NewLAGConvGRU模块, 结尾数字不同对应不同模型, 手动改, 这样代码少点
     """
     def __init__(self, num_bins=5, base_num_channels=16, kernel_size=3, unet_kwargs={}):
         super().__init__()
@@ -461,9 +461,9 @@ class DarkFireNet_NewLAG2(BaseModel):
         self.num_bins = num_bins
         padding = kernel_size // 2
         self.head = ConvLayer(self.num_bins, base_num_channels, kernel_size, padding=padding)
-        self.G1   = NewLAGConvGRU2(base_num_channels, base_num_channels, kernel_size) # change
+        self.G1   = NewLAGConvGRU3(base_num_channels, base_num_channels, kernel_size) # change
         self.R1   = ResidualBlock(base_num_channels, base_num_channels)
-        self.G2   = NewLAGConvGRU2(base_num_channels, base_num_channels, kernel_size) #change
+        self.G2   = NewLAGConvGRU3(base_num_channels, base_num_channels, kernel_size) #change
         self.R2   = ResidualBlock(base_num_channels, base_num_channels)
         self.pred = ConvLayer(base_num_channels, out_channels=1, kernel_size=1, activation=None)
         self.num_encoders = 0

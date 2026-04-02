@@ -497,11 +497,14 @@ class NewLAGConvGRU(nn.Module):
 
         return new_state
 
+
 class NewLAGConvGRU2(nn.Module):
     """
     相比1, 把α调回了逐通道的, 采用深度可分离卷积, 参数增加不多, 效果或许更好
     把clamp下限改成了0.0, 不强制更新10%
     下一步(这里没实现)计划把prev_state也引入知道调控
+
+    结论: 反而比1差
     """
 
     def __init__(self, input_size, hidden_size, kernel_size):
@@ -548,6 +551,61 @@ class NewLAGConvGRU2(nn.Module):
         alpha = 2.0 * torch.sigmoid(self.LAG_conv(input_))  # (B, 16, H, W) α∈(0, 2) change
 
         update_eff = torch.clamp(alpha * update, min=0.0, max=1.0) # change
+
+        new_state = (1 - update_eff) * prev_state + update_eff * h_candidate
+
+        return new_state
+    
+
+class NewLAGConvGRU3(nn.Module):
+    """
+    只把clamp下限改成了0.05
+    """
+
+    def __init__(self, input_size, hidden_size, kernel_size):
+        super().__init__()
+        padding = kernel_size // 2
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+
+        # Standard GRU gates
+        self.reset_gate  = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.update_gate = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+        self.out_gate    = nn.Conv2d(input_size + hidden_size, hidden_size, kernel_size, padding=padding)
+
+        # NewLAG, initilize weights and bias to 0 to correspond standard ConvGRU
+        self.LAG_conv = nn.Conv2d(input_size, hidden_size, kernel_size=3, stride=1, padding=1, groups=input_size, bias=True)
+        init.constant_(self.LAG_conv.weight, 0.)
+        init.constant_(self.LAG_conv.bias, 0.)
+
+        # Weight initialization
+        init.orthogonal_(self.reset_gate.weight)
+        init.orthogonal_(self.update_gate.weight)
+        init.orthogonal_(self.out_gate.weight)
+        init.constant_(self.reset_gate.bias, 0.)
+        init.constant_(self.update_gate.bias, 0.)
+        init.constant_(self.out_gate.bias, 0.)
+
+    def forward(self, input_, prev_state):
+        batch_size = input_.size()[0]
+        spatial_size = input_.size()[2:]
+
+        if prev_state is None:
+            state_size = [batch_size, self.hidden_size] + list(spatial_size)
+            prev_state = torch.zeros(state_size, dtype=input_.dtype).to(input_.device)
+
+        # === Standard GRU gating ===
+        stacked = torch.cat([input_, prev_state], dim=1)
+        update = torch.sigmoid(self.update_gate(stacked))
+        reset  = torch.sigmoid(self.reset_gate(stacked))
+        h_candidate = torch.tanh(self.out_gate(torch.cat([input_, prev_state * reset], dim=1)))
+
+        # === NewLAG ===
+        # light_feat = torch.mean(input_, dim=1, keepdim=True)  # (B, 1, H, W)
+
+        alpha = 2.0 * torch.sigmoid(self.LAG_conv(input_))  # (B, 16, H, W) α∈(0, 2) change
+
+        update_eff = torch.clamp(alpha * update, min=0.05, max=1.0) # change
 
         new_state = (1 - update_eff) * prev_state + update_eff * h_candidate
 
