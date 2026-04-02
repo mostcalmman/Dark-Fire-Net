@@ -88,10 +88,50 @@ def calculate_mse(img1: np.ndarray, img2: np.ndarray) -> float:
     return float(np.mean((img1 - img2) ** 2))
 
 
-def calculate_ssim(img1: np.ndarray, img2: np.ndarray) -> float:
-    """Calculate SSIM between two images."""
+def calculate_ssim_skimage(img1: np.ndarray, img2: np.ndarray) -> float:
+    """Calculate window-based SSIM between two images using skimage.
+    
+    This uses an 11x11 sliding window for local structure comparison,
+    matching the standard implementation used in most papers.
+    """
     # Use data_range=1.0 since images are in [0, 1]
     return float(ssim_skimage(img1, img2, data_range=1.0))
+
+
+def calculate_ssim_global(img1: np.ndarray, img2: np.ndarray) -> float:
+    """Calculate global SSIM between two images using mean over entire image.
+    
+    This matches the trainer.py implementation and computes SSIM using
+    global statistics (mean/variance over the entire image) rather than
+    a sliding window approach.
+    """
+    # Ensure images are float32 in [0, 1]
+    img1 = img1.astype(np.float32)
+    img2 = img2.astype(np.float32)
+    
+    # Global means
+    mu1 = img1.mean()
+    mu2 = img2.mean()
+    
+    # Centered images
+    img1_centered = img1 - mu1
+    img2_centered = img2 - mu2
+    
+    # Global variances and covariance
+    var1 = (img1_centered ** 2).mean()
+    var2 = (img2_centered ** 2).mean()
+    cov = (img1_centered * img2_centered).mean()
+    
+    # SSIM constants
+    c1 = 0.01 ** 2
+    c2 = 0.03 ** 2
+    
+    # SSIM formula
+    numerator = (2.0 * mu1 * mu2 + c1) * (2.0 * cov + c2)
+    denominator = (mu1 ** 2 + mu2 ** 2 + c1) * (var1 + var2 + c2)
+    ssim = numerator / (denominator + 1e-8)
+    
+    return float(ssim)
 
 
 def calculate_lpips(img1: np.ndarray, img2: np.ndarray, loss_fn: torch.nn.Module) -> float:
@@ -212,7 +252,8 @@ def evaluate_directory(
     
     # Storage for individual metrics
     mses = []
-    ssims = []
+    ssims_skimage = []
+    ssims_global = []
     lpips_vals = []
     tcs = []
     
@@ -230,9 +271,11 @@ def evaluate_directory(
         mse = calculate_mse(rec_img, gt_img)
         mses.append(mse)
         
-        # SSIM
-        ssim_val = calculate_ssim(rec_img, gt_img)
-        ssims.append(ssim_val)
+        # SSIM - both window-based (skimage) and global
+        ssim_skimage_val = calculate_ssim_skimage(rec_img, gt_img)
+        ssim_global_val = calculate_ssim_global(rec_img, gt_img)
+        ssims_skimage.append(ssim_skimage_val)
+        ssims_global.append(ssim_global_val)
         
         # LPIPS
         if lpips_model is not None:
@@ -268,9 +311,13 @@ def evaluate_directory(
             cv2.imwrite(join(error_map_dir, fname), error_colored)
     
     # Calculate means
+    # Naming convention matches trainer.py (without 'raw_' prefix):
+    # - ssim: window-based SSIM (like skimage, primary metric)
+    # - ssim_global: global mean-based SSIM (secondary metric)
     results = {
         'mse': float(np.mean(mses)) if mses else 0.0,
-        'ssim': float(np.mean(ssims)) if ssims else 0.0,
+        'ssim': float(np.mean(ssims_skimage)) if ssims_skimage else 0.0,
+        'ssim_global': float(np.mean(ssims_global)) if ssims_global else 0.0,
         'lpips': float(np.mean(lpips_vals)) if lpips_vals else 0.0,
         'tc': float(np.mean(tcs)) if tcs else 0.0,
         'num_frames': len(pairs),
@@ -385,7 +432,8 @@ def print_results(results: Dict[str, Dict[str, float]], output_file: Optional[st
     """Print and optionally save results."""
     lines = []
     
-    header = f"{'Scene':<20} {'MSE':<12} {'SSIM':<12} {'LPIPS':<12} {'TC':<12} {'Frames':<10}"
+    # Header with both SSIM columns
+    header = f"{'Scene':<20} {'MSE':<12} {'SSIM(win)':<12} {'SSIM(glb)':<12} {'LPIPS':<12} {'TC':<12} {'Frames':<10}"
     sep = "-" * len(header)
     
     lines.append(header)
@@ -396,12 +444,14 @@ def print_results(results: Dict[str, Dict[str, float]], output_file: Optional[st
     # Calculate overall means
     all_mse = []
     all_ssim = []
+    all_ssim_global = []
     all_lpips = []
     all_tc = []
     
     for scene, metrics in sorted(results.items()):
         mse = metrics['mse']
-        ssim = metrics['ssim']
+        ssim = metrics.get('ssim', 0.0)
+        ssim_global = metrics.get('ssim_global', 0.0)
         lpips_val = metrics['lpips']
         tc = metrics['tc']
         n_frames = metrics['num_frames']
@@ -409,6 +459,7 @@ def print_results(results: Dict[str, Dict[str, float]], output_file: Optional[st
         
         all_mse.append(mse)
         all_ssim.append(ssim)
+        all_ssim_global.append(ssim_global)
         if lpips_val > 0:
             all_lpips.append(lpips_val)
         if tc > 0:
@@ -417,7 +468,7 @@ def print_results(results: Dict[str, Dict[str, float]], output_file: Optional[st
         tc_str = f"{tc:.6f}" if n_tc > 0 else "N/A"
         lpips_str = f"{lpips_val:.6f}" if lpips_val > 0 else "N/A"
         
-        line = f"{scene:<20} {mse:<12.6f} {ssim:<12.6f} {lpips_str:<12} {tc_str:<12} {n_frames:<10}"
+        line = f"{scene:<20} {mse:<12.6f} {ssim:<12.6f} {ssim_global:<12.6f} {lpips_str:<12} {tc_str:<12} {n_frames:<10}"
         lines.append(line)
         print(line)
     
@@ -427,14 +478,15 @@ def print_results(results: Dict[str, Dict[str, float]], output_file: Optional[st
     # Overall mean
     if len(results) > 1:
         mean_mse = np.mean(all_mse)
-        mean_ssim = np.mean(all_ssim)
+        mean_ssim = np.mean(all_ssim) if all_ssim else 0.0
+        mean_ssim_global = np.mean(all_ssim_global) if all_ssim_global else 0.0
         mean_lpips = np.mean(all_lpips) if all_lpips else 0.0
         mean_tc = np.mean(all_tc) if all_tc else 0.0
         
         lpips_str = f"{mean_lpips:.6f}" if all_lpips else "N/A"
         tc_str = f"{mean_tc:.6f}" if all_tc else "N/A"
         
-        line = f"{'MEAN':<20} {mean_mse:<12.6f} {mean_ssim:<12.6f} {lpips_str:<12} {tc_str:<12}"
+        line = f"{'MEAN':<20} {mean_mse:<12.6f} {mean_ssim:<12.6f} {mean_ssim_global:<12.6f} {lpips_str:<12} {tc_str:<12}"
         lines.append(line)
         print(line)
     

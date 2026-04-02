@@ -36,7 +36,7 @@ class Trainer(BaseTrainer):
         self.log_step = max(len(data_loader) // 100, 1)
         self.val_log_step = max(len(valid_data_loader) // 100, 1)
 
-        self.raw_metric_keys = ('raw_ssim', 'raw_mse', 'raw_lpips', 'raw_tc')
+        self.raw_metric_keys = ('raw_ssim', 'raw_ssim_global', 'raw_mse', 'raw_lpips', 'raw_tc')
         self.tc_l0 = 1
         for loss_ftn in self.loss_ftns:
             if loss_ftn.__class__.__name__ == 'temporal_consistency_loss':
@@ -85,6 +85,7 @@ class Trainer(BaseTrainer):
                 image_detached = image.detach()
                 raw_metrics['raw_mse'].append(F.mse_loss(pred_image_detached, image_detached))
                 raw_metrics['raw_ssim'].append(self.compute_ssim(pred_image_detached, image_detached))
+                raw_metrics['raw_ssim_global'].append(self.compute_ssim_global(pred_image_detached, image_detached))
                 raw_metrics['raw_lpips'].append(self.compute_lpips(pred_image_detached, image_detached))
 
                 if prev_image is not None and flow is not None and i >= self.tc_l0:
@@ -148,6 +149,63 @@ class Trainer(BaseTrainer):
         return self.lpips_metric.forward(pred, target, normalize=True).mean()
 
     def compute_ssim(self, pred, target):
+        """Compute window-based SSIM matching skimage implementation.
+        
+        Uses 11x11 Gaussian window with sigma=1.5, matching skimage.metrics.structural_similarity.
+        This is the primary SSIM metric used for comparison with paper results.
+        """
+        pred = torch.clamp(pred, 0.0, 1.0)
+        target = torch.clamp(target, 0.0, 1.0)
+        
+        # Constants matching skimage defaults
+        window_size = 11
+        sigma = 1.5
+        C1 = 0.01 ** 2
+        C2 = 0.03 ** 2
+        
+        # Create 2D Gaussian window matching skimage
+        # Coordinates from -5 to +5 (for window_size=11)
+        coords = torch.arange(window_size, dtype=pred.dtype, device=pred.device) - window_size // 2
+        g = torch.exp(-(coords ** 2) / (2 * sigma ** 2))
+        # Normalize to sum to 1
+        g = g / g.sum()
+        # Outer product to get 2D kernel
+        window_2d = g.unsqueeze(0) * g.unsqueeze(1)  # [11, 11]
+        # Expand to [C, 1, 11, 11] for grouped convolution
+        channel = pred.size(1)
+        window = window_2d.unsqueeze(0).unsqueeze(0).expand(channel, 1, window_size, window_size).contiguous()
+        
+        # Valid padding (no padding) like skimage - only compute where full window fits
+        pad = window_size // 2
+        
+        # Compute local means using convolution
+        mu_pred = F.conv2d(pred, window, padding=pad, groups=channel)
+        mu_target = F.conv2d(target, window, padding=pad, groups=channel)
+        
+        mu_pred_sq = mu_pred ** 2
+        mu_target_sq = mu_target ** 2
+        mu_pred_target = mu_pred * mu_target
+        
+        # Compute local variances and covariance
+        sigma_pred_sq = F.conv2d(pred * pred, window, padding=pad, groups=channel) - mu_pred_sq
+        sigma_target_sq = F.conv2d(target * target, window, padding=pad, groups=channel) - mu_target_sq
+        sigma_pred_target = F.conv2d(pred * target, window, padding=pad, groups=channel) - mu_pred_target
+        
+        # SSIM formula
+        ssim_map = ((2 * mu_pred_target + C1) * (2 * sigma_pred_target + C2)) / \
+                   ((mu_pred_sq + mu_target_sq + C1) * (sigma_pred_sq + sigma_target_sq + C2))
+        
+        # Clamp to valid range like skimage
+        ssim_map = torch.clamp(ssim_map, -1.0, 1.0)
+        
+        return ssim_map.mean()
+
+    def compute_ssim_global(self, pred, target):
+        """Compute global SSIM using mean over entire image (no sliding window).
+        
+        This computes SSIM using global statistics (single mean/variance per image).
+        Useful for understanding overall image similarity without local structure consideration.
+        """
         pred = torch.clamp(pred, 0.0, 1.0)
         target = torch.clamp(target, 0.0, 1.0)
 
@@ -161,12 +219,12 @@ class Trainer(BaseTrainer):
         var_target = (target_centered ** 2).mean(dim=reduce_dims)
         cov = (pred_centered * target_centered).mean(dim=reduce_dims)
 
-        c1 = 0.01 ** 2
-        c2 = 0.03 ** 2
-        numerator = (2.0 * mu_pred * mu_target + c1) * (2.0 * cov + c2)
-        denominator = (mu_pred ** 2 + mu_target ** 2 + c1) * (var_pred + var_target + c2)
+        C1 = 0.01 ** 2
+        C2 = 0.03 ** 2
+        numerator = (2.0 * mu_pred * mu_target + C1) * (2.0 * cov + C2)
+        denominator = (mu_pred ** 2 + mu_target ** 2 + C1) * (var_pred + var_target + C2)
         ssim = numerator / (denominator + 1e-8)
-        return ssim.mean()
+        return torch.clamp(ssim, -1.0, 1.0).mean()
 
     def _train_epoch(self, epoch):
         """

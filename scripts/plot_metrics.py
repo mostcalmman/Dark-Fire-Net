@@ -8,24 +8,27 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-METRICS = ["loss", "raw_ssim", "raw_mse", "raw_lpips", "raw_tc"]
+METRICS = ["loss", "raw_ssim", "raw_ssim_global", "raw_mse", "raw_lpips", "raw_tc"]
 SUMMARY_METRICS = [
 	("Overall Loss", "loss"),
 	("    LPIPS   ", "raw_lpips"),
-	("    SSIM    ", "raw_ssim"),
+	("  SSIM(win) ", "raw_ssim"),
+	("  SSIM(glb) ", "raw_ssim_global"),
 	("     MSE    ", "raw_mse"),
 	("     TC     ", "raw_tc"),
 ]
 VAL_KEY_MAP = {
 	"val_loss": "loss",
 	"val_raw_ssim": "raw_ssim",
+	"val_raw_ssim_global": "raw_ssim_global",
 	"val_raw_mse": "raw_mse",
 	"val_raw_lpips": "raw_lpips",
 	"val_raw_tc": "raw_tc",
 }
 PLOT_TITLES = {
 	"loss": "Loss",
-	"raw_ssim": "SSIM",
+	"raw_ssim": "SSIM (window)",
+	"raw_ssim_global": "SSIM (global)",
 	"raw_mse": "MSE",
 	"raw_lpips": "LPIPS",
 	"raw_tc": "TC",
@@ -33,6 +36,7 @@ PLOT_TITLES = {
 EXTREMA_MODE = {
 	"loss": "min",
 	"raw_ssim": "max",
+	"raw_ssim_global": "max",
 	"raw_mse": "min",
 	"raw_lpips": "min",
 	"raw_tc": "min",
@@ -121,15 +125,19 @@ def plot_all_metrics(train_records, val_records, out_dir: Path):
 	fig = plt.figure(figsize=(14, 10), constrained_layout=True)
 	gs = fig.add_gridspec(3, 2)
 
+	# Create subplots - both SSIM metrics share one subplot
 	axes = {
 		"loss": fig.add_subplot(gs[0, :]),
-		"raw_ssim": fig.add_subplot(gs[1, 0]),
+		"ssim_combined": fig.add_subplot(gs[1, 0]),  # Combined SSIM subplot
 		"raw_mse": fig.add_subplot(gs[1, 1]),
 		"raw_lpips": fig.add_subplot(gs[2, 0]),
 		"raw_tc": fig.add_subplot(gs[2, 1]),
 	}
 
-	for metric in METRICS:
+	# Plot regular metrics
+	for metric in ["loss", "raw_mse", "raw_lpips", "raw_tc"]:
+		if metric not in available_metrics:
+			continue
 		ax = axes[metric]
 		train_epochs, train_values = extract_series(train_records, metric)
 		val_epochs, val_values = extract_series(val_records, metric)
@@ -148,6 +156,41 @@ def plot_all_metrics(train_records, val_records, out_dir: Path):
 		ax.grid(True, alpha=0.3)
 		if train_epochs or val_epochs:
 			ax.legend()
+
+	# Plot both SSIM metrics on the same subplot with different colors
+	ax_ssim = axes["ssim_combined"]
+	colors = plt.cm.tab10(np.linspace(0, 1, 10))
+
+	# SSIM Window (skimage-style)
+	train_epochs_win, train_values_win = extract_series(train_records, "raw_ssim")
+	val_epochs_win, val_values_win = extract_series(val_records, "raw_ssim")
+	if train_epochs_win:
+		ax_ssim.plot(train_epochs_win, train_values_win, marker="o", linewidth=1.5,
+					 color=colors[0], label="Window-Train")
+	if val_epochs_win:
+		ax_ssim.plot(val_epochs_win, val_values_win, marker="s", linewidth=1.5,
+					 color=colors[0], linestyle='--', label="Window-Val")
+	annotate_extrema(ax_ssim, train_epochs_win, train_values_win, "raw_ssim")
+	annotate_extrema(ax_ssim, val_epochs_win, val_values_win, "raw_ssim")
+
+	# SSIM Global (mean-based)
+	train_epochs_glb, train_values_glb = extract_series(train_records, "raw_ssim_global")
+	val_epochs_glb, val_values_glb = extract_series(val_records, "raw_ssim_global")
+	if train_epochs_glb:
+		ax_ssim.plot(train_epochs_glb, train_values_glb, marker="o", linewidth=1.5,
+					 color=colors[1], label="Global-Train")
+	if val_epochs_glb:
+		ax_ssim.plot(val_epochs_glb, val_values_glb, marker="s", linewidth=1.5,
+					 color=colors[1], linestyle='--', label="Global-Val")
+	annotate_extrema(ax_ssim, train_epochs_glb, train_values_glb, "raw_ssim_global")
+	annotate_extrema(ax_ssim, val_epochs_glb, val_values_glb, "raw_ssim_global")
+
+	ax_ssim.set_title("SSIM (Window vs Global)")
+	ax_ssim.set_xlabel("Epoch")
+	ax_ssim.set_ylabel("SSIM")
+	ax_ssim.grid(True, alpha=0.3)
+	if train_epochs_win or val_epochs_win or train_epochs_glb or val_epochs_glb:
+		ax_ssim.legend(ncol=2, fontsize=8)
 
 	out_file = out_dir / "metrics_overview.png"
 	fig.savefig(out_file, dpi=150)
